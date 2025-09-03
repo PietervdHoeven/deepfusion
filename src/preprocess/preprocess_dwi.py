@@ -120,10 +120,10 @@ def process_session(
 
     dti_scalar_maps = compute_dti_metrics(dwi, bvals, bvecs)
 
-    dti_smaps_path = f"data/dti_maps/{split}/{patient_id}/{session_id}/{patient_id}_{session_id}_dti-scalar-maps.npz"
-    os.makedirs(os.path.dirname(dti_smaps_path), exist_ok=True)
+    dti_scalar_maps_path = f"data/dti_maps/{split}/{patient_id}/{session_id}/{patient_id}_{session_id}_dti-scalar-maps.npz"
+    os.makedirs(os.path.dirname(dti_scalar_maps_path), exist_ok=True)
     np.savez_compressed(
-        dti_smaps_path,
+        dti_scalar_maps_path,
         **dti_scalar_maps,
         patient_id=patient_id,
         session_id=session_id,
