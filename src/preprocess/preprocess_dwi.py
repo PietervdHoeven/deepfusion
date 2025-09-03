@@ -16,7 +16,6 @@ from sklearn.model_selection import StratifiedGroupKFold
 import matplotlib.pyplot as plt
 import os
 
-
 from dipy.io.gradients import read_bvals_bvecs # type: ignore
 from dipy.core.gradients import gradient_table # type: ignore
 from dipy.reconst.dti import TensorModel # type: ignore
@@ -61,7 +60,7 @@ def split_and_save(
     split = np.full(len(df), "train", dtype=object)
     split[val_indices] = "val"
     split[test_indices] = "test"
-    df["split"] = split
+    df["stage"] = split
 
     # Save to same CSV
     df.to_csv(csv_path, index=False)
@@ -100,14 +99,16 @@ def process_session(
     patient_id = sub
     session_id = ses
 
+    print(f"Processing {patient_id}, {session_id}")
+
     row = metadata[(metadata["patient"] == patient_id) & (metadata["session"] == session_id)]
-    split = row.iloc[0]["split"]
+    stage = row.iloc[0]["stage"]
 
     dwi, bvals, bvecs, affine, header = load_session_data(dwi_path, bval_path, bvec_path)
 
     dwi_normalised = normalise_dwi(dwi, bvals)
 
-    dwi_norm_path = f"data/normalised_dwi/{split}/{patient_id}/{session_id}/{patient_id}_{session_id}_normalised-dwi.npz"
+    dwi_norm_path = f"data/normalised_dwi/{stage}/{patient_id}/{session_id}/{patient_id}_{session_id}_normalised-dwi.npz"
     os.makedirs(os.path.dirname(dwi_norm_path), exist_ok=True)
     np.savez_compressed(
         dwi_norm_path,
@@ -120,7 +121,7 @@ def process_session(
 
     dti_scalar_maps = compute_dti_metrics(dwi, bvals, bvecs)
 
-    dti_scalar_maps_path = f"data/dti_maps/{split}/{patient_id}/{session_id}/{patient_id}_{session_id}_dti-scalar-maps.npz"
+    dti_scalar_maps_path = f"data/dti_maps/{stage}/{patient_id}/{session_id}/{patient_id}_{session_id}_dti-scalar-maps.npz"
     os.makedirs(os.path.dirname(dti_scalar_maps_path), exist_ok=True)
     np.savez_compressed(
         dti_scalar_maps_path,
@@ -232,10 +233,6 @@ def compute_dti_metrics(
 
     return out
 
-
-import matplotlib.pyplot as plt
-import numpy as np
-
 def plot_dti(out, z: int = 64):
     """
     Plot one axial slice (z index) from each DTI map in `out`.
@@ -311,9 +308,7 @@ def main():
             # Move to next session (continue loop)
             continue
 
-    
-
-
+        
 
 if __name__ == "__main__":
     main()

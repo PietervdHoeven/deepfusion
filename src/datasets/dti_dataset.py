@@ -21,14 +21,14 @@ class DTI_Dataset(Dataset):
 
     Each NPZ contains:
       {"fa": (D,H,W), "md": (D,H,W), "rd": (D,H,W), "ad": (D,H,W),
-       "patient_id": "sub-XXXX", "session_id": "ses-YYYY", "bvals": ..., "bvecs": ...}
+       "patient_id": "sub-XXXX", "session_id": "ses-YYYY", "bvals": (3,N), "bvecs": (3,N)}
 
     The dataset stacks FA/MD/RD/AD → (4, D, H, W) and uses `task` to select the label column in metadata.
     """
     def __init__(
             self,
             data_dir: str,
-            split: str,
+            stage: str,
             task: str
             ):
         """
@@ -42,10 +42,10 @@ class DTI_Dataset(Dataset):
             Name of the label column in metadata (e.g., "cdr", "age", ...).
         """
         self.data_dir = Path(data_dir)
-        self.split = split
+        self.stage = stage
         self.task = task
         self.metadata = pd.read_csv(self.data_dir / "meta_data.csv")
-        self.files = list((self.data_dir / "dti_maps" / self.split).glob("**/*.npz"))
+        self.files = sorted((self.data_dir / "dti_maps" / self.stage).glob("**/*.npz"))
         self.data = self.load_data()
 
     def __len__(self):
@@ -65,10 +65,11 @@ class DTI_Dataset(Dataset):
             sid = str(data["session_id"])
 
             # lookup label in metadata
+            label_col = "cdr" if self.task[-3:] == "cdr" else self.task
             label = self.metadata.loc[
                 (self.metadata["patient_id"] == pid) &
                 (self.metadata["session_id"] == sid),
-                self.task
+                label_col
             ].values
 
         # Cast labels to tensors
