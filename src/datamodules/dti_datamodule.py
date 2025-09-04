@@ -34,11 +34,12 @@ class DTI_DataModule(pl.LightningDataModule):
 
     def setup(self, stage: Optional[str] = None) -> None:
         if stage in (None, "fit", "validate"):
-            self.train_dataset = DTI_Dataset(data_dir=self.data_dir, split="train", task=self.task)
-            self.val_dataset   = DTI_Dataset(data_dir=self.data_dir, split="val",   task=self.task)
+            self.train_dataset = DTI_Dataset(data_dir=self.data_dir, stage="train", task=self.task)
+            self.val_dataset   = DTI_Dataset(data_dir=self.data_dir, stage="val",   task=self.task)
 
             if self.test_run:
                 self.train_dataset = Subset(self.train_dataset, np.arange(0, 100))
+                self.train_dataset.files = self.train_dataset.dataset.files[:100]
 
             if self.use_sampler:
                 weights = compute_sample_weights(self.data_dir, self.task)  # aligned to train_dataset

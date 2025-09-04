@@ -46,7 +46,6 @@ class DTI_Dataset(Dataset):
         self.task = task
         self.metadata = pd.read_csv(self.data_dir / "meta_data.csv")
         self.files = sorted((self.data_dir / "dti_maps" / self.stage).glob("**/*.npz"))
-        self.data = self.load_data()
 
     def __len__(self):
         return len(self.files)
@@ -61,14 +60,14 @@ class DTI_Dataset(Dataset):
             arr = np.stack([data["fa"], data["md"], data["rd"], data["ad"]], axis=0)
 
             # IDs for label lookup
-            pid = str(data["patient_id"])
-            sid = str(data["session_id"])
+            pid = str(data["patient"])
+            sid = str(data["session"])
 
             # lookup label in metadata
             label_col = "cdr" if self.task[-3:] == "cdr" else self.task
             label = self.metadata.loc[
-                (self.metadata["patient_id"] == pid) &
-                (self.metadata["session_id"] == sid),
+                (self.metadata["patient"] == pid) &
+                (self.metadata["session"] == sid),
                 label_col
             ].values
 

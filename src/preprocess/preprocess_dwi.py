@@ -66,15 +66,15 @@ def split_and_save(
     df.to_csv(csv_path, index=False)
 
     # Patient -> split map
-    patient_map = df[[group_key, "split"]].drop_duplicates().sort_values(group_key)
+    patient_map = df[[group_key, "stage"]].drop_duplicates().sort_values(group_key)
     patient_map.to_csv(map_out, index=False)
 
     print("Done.")
     print("Wrote:", csv_path)
     print("Wrote:", map_out)
-    print(df["split"].value_counts())
+    print(df["stage"].value_counts())
     print("Unique patients per split:")
-    print(df.groupby("split")[group_key].nunique())
+    print(df.groupby("stage")[group_key].nunique())
 
 
 def process_session(
