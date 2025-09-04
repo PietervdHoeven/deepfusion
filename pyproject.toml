@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deepfusion"
+version = "0.1.0"
+description = "Transformer-based framework for diffusion MRI analysis"
+authors = [{ name = "Spieterman" }]
+readme = "README.md"
+requires-python = ">=3.9"
+
+dependencies = [
+    "torch>=2.0",               # user will pick CPU / cu12 wheel
+    "torchvision>=0.15",
+    "torchaudio>=2.0",
+    "pytorch-lightning>=2.2",
+    "dipy",
+    "hydra-core>=1.3",
+    "omegaconf>=2.3",
+    "numpy>=1.23",
+    "pandas>=1.5",
+    "tqdm>=4.60",
+    "nibabel>=5.0",             # for neuroimaging volumes
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}

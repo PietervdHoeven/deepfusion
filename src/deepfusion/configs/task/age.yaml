@@ -1,0 +1,5 @@
+# configs/task/age.yaml
+
+name: age
+monitor: val_mae
+mode: min

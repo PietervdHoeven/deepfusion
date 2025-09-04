@@ -1,0 +1,5 @@
+# configs/task/tri_cdr.yaml
+
+name: tri_cdr
+monitor: val_auroc
+mode: max

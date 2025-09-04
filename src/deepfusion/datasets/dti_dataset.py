@@ -4,7 +4,7 @@ from torch.utils.data import Dataset
 from pathlib import Path
 import pandas as pd
 import numpy as np
-from src.utils.labels import map_label
+from deepfusion.utils.labels import map_label
 
 class DTI_Dataset(Dataset):
     """
@@ -60,16 +60,16 @@ class DTI_Dataset(Dataset):
             arr = np.stack([data["fa"], data["md"], data["rd"], data["ad"]], axis=0)
 
             # IDs for label lookup
-            pid = str(data["patient"])
-            sid = str(data["session"])
+            patient_id = str(data["patient_id"])
+            session_id = str(data["session_id"])
 
             # lookup label in metadata
             label_col = "cdr" if self.task[-3:] == "cdr" else self.task
             label = self.metadata.loc[
-                (self.metadata["patient"] == pid) &
-                (self.metadata["session"] == sid),
+                (self.metadata["patient_id"] == patient_id) &
+                (self.metadata["session_id"] == session_id),
                 label_col
-            ].values
+            ].item()
 
         # Cast labels to tensors
         num_label = map_label(self.task, label)

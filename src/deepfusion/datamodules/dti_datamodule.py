@@ -4,8 +4,8 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, Subset
 import pytorch_lightning as pl
-from src.datasets.dti_dataset import DTI_Dataset
-from src.utils.sampler import compute_sample_weights
+from deepfusion.datasets.dti_dataset import DTI_Dataset
+from deepfusion.utils.sampler import compute_sample_weights
 
 class DTI_DataModule(pl.LightningDataModule):
     def __init__(
@@ -16,7 +16,7 @@ class DTI_DataModule(pl.LightningDataModule):
         use_sampler: bool = True,
         num_workers: int = 12,
         pin_memory: bool = True,
-        test_run: bool = True,
+        use_subset: bool = False,
     ):
         super().__init__()
         self.data_dir = data_dir
@@ -25,7 +25,7 @@ class DTI_DataModule(pl.LightningDataModule):
         self.use_sampler = use_sampler
         self.num_workers = num_workers
         self.pin_memory = pin_memory
-        self.test_run = test_run
+        self.use_subset = use_subset
 
         self.train_dataset = None
         self.val_dataset = None
@@ -37,12 +37,16 @@ class DTI_DataModule(pl.LightningDataModule):
             self.train_dataset = DTI_Dataset(data_dir=self.data_dir, stage="train", task=self.task)
             self.val_dataset   = DTI_Dataset(data_dir=self.data_dir, stage="val",   task=self.task)
 
-            if self.test_run:
-                self.train_dataset = Subset(self.train_dataset, np.arange(0, 100))
+            # NOTE: This is fragile! Only use for quick testing and you are sure that meta_data.csv and files are a perfect match.
+            if self.use_subset:
+                self.train_dataset = Subset(self.train_dataset, np.arange(0, 100))      
                 self.train_dataset.files = self.train_dataset.dataset.files[:100]
+                self.train_dataset.data_dir = self.train_dataset.dataset.data_dir
+                self.train_dataset.task = self.train_dataset.dataset.task
+
 
             if self.use_sampler:
-                weights = compute_sample_weights(self.data_dir, self.task)  # aligned to train_dataset
+                weights = compute_sample_weights(self.train_dataset)
                 self.train_sampler = torch.utils.data.WeightedRandomSampler(
                     weights=weights,
                     num_samples=len(weights),
@@ -52,7 +56,7 @@ class DTI_DataModule(pl.LightningDataModule):
                 self.train_sampler = None
 
         if stage in (None, "test"):
-            self.test_dataset = DTI_Dataset(data_dir=self.data_dir, split="test", task=self.task)
+            self.test_dataset = DTI_Dataset(data_dir=self.data_dir, stage="test", task=self.task)
 
     def _dl(self, dataset, *, sampler=None, shuffle=False) -> DataLoader:
         # If sampler is provided, shuffle must be False.
@@ -77,3 +81,21 @@ class DTI_DataModule(pl.LightningDataModule):
 
     def test_dataloader(self) -> DataLoader:
         return self._dl(self.test_dataset, shuffle=False)
+    
+
+# test run
+
+# if __name__ == "__main__":
+#     dm = DTI_DataModule(data_dir="data", task="tri_cdr", batch_size=2, use_sampler=True, use_subset=False)
+#     dm.setup("fit")
+#     train_loader = dm.train_dataloader()
+#     val_loader = dm.val_dataloader()
+#     print(f"Train batches: {len(train_loader)}, Val batches: {len(val_loader)}")
+#     for batch in train_loader:
+#         x, y = batch
+#         print(f"x: {x.shape}, y: {y.shape}, y: {y}")
+#         break
+#     for batch in val_loader:
+#         x, y = batch
+#         print(f"x: {x.shape}, y: {y.shape}, y: {y}")
+#         break

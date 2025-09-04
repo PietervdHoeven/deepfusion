@@ -1,6 +1,6 @@
 from pathlib import Path
 from torch.utils.data import Dataset
-from src.utils.labels import map_label
+from deepfusion.utils.labels import map_label
 from collections import Counter
 import pandas as pd
 
@@ -16,14 +16,14 @@ def compute_sample_weights(dataset):
     label_col = "cdr" if dataset.task.endswith("cdr") else dataset.task
 
     # Build fast lookup: (patient, session) -> raw_label
-    idx = {(r.patient, r.session): r[label_col] for _, r in meta_df.iterrows()}
+    idx = {(r.patient_id, r.session_id): r[label_col] for _, r in meta_df.iterrows()}
 
     # Collect numeric labels in dataset order
     raw_labels = []
     for file in dataset.files:
         file_name = Path(file).name  # get only the filename
-        p_id, s_id = file_name.split("_", 2)[:2]  # 'sub-..', 'ses-..'
-        raw_label = idx.get((p_id, s_id))
+        patient_id, session_id = file_name.split("_", 2)[:2]  # 'sub-..', 'ses-..'
+        raw_label = idx.get((patient_id, session_id))
         raw_labels.append(raw_label)
 
     num_labels = [map_label(dataset.task, label) for label in raw_labels]

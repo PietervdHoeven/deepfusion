@@ -1,2 +1,6 @@
 data/
+!dti.yaml
 .venv
+*.egg-info
+outputs/
+__pycache__/

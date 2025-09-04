@@ -23,7 +23,7 @@ from dipy.reconst.dti import TensorModel # type: ignore
 
 def split_and_save(
     csv_path,
-    group_key="patient",
+    group_key="patient_id",
     folds=10,
     val_folds=1,
     test_folds=1,
@@ -101,7 +101,7 @@ def process_session(
 
     print(f"Processing {patient_id}, {session_id}")
 
-    row = metadata[(metadata["patient"] == patient_id) & (metadata["session"] == session_id)]
+    row = metadata[(metadata["patient_id"] == patient_id) & (metadata["session_id"] == session_id)]
     stage = row.iloc[0]["stage"]
 
     dwi, bvals, bvecs, affine, header = load_session_data(dwi_path, bval_path, bvec_path)
@@ -289,8 +289,8 @@ def main():
 
     # loop over the metadata and process each patients data
     for _, row in tqdm(metadata.iterrows(), total=len(metadata), desc="Processing sessions"):
-        patient_id = row["patient"]
-        session_id = row["session"]
+        patient_id = row["patient_id"]
+        session_id = row["session_id"]
         
         dwi_path = f"data/cleaned_dwi/{patient_id}/{session_id}/{patient_id}_{session_id}_dwi_allruns.nii.gz"
         bval_path = f"data/cleaned_dwi/{patient_id}/{session_id}/{patient_id}_{session_id}_dwi_allruns.bval"
