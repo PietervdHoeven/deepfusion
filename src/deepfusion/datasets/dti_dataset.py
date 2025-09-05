@@ -57,6 +57,7 @@ class DTI_Dataset(Dataset):
         # Load the DTI maps and metadata
         with np.load(npz_file_path) as data:
             # Stack FA/MD/RD/AD -> (4, D, H, W)
+            print(data.keys())
             arr = np.stack([data["fa"], data["md"], data["rd"], data["ad"]], axis=0)
 
             # IDs for label lookup
@@ -82,3 +83,12 @@ class DTI_Dataset(Dataset):
         x = torch.from_numpy(arr).float()
 
         return x, y 
+    
+# test run
+
+# if __name__ == "__main__":
+#     dataset = DTI_Dataset(data_dir="data", stage="train", task="tri_cdr")
+#     print(f"Dataset size: {len(dataset)}")
+#     for i in range(3):
+#         x, y = dataset[i]
+#         print(f"Sample {i}: x shape: {x.shape}, y: {y}")  # should be [4, D, H, W]    

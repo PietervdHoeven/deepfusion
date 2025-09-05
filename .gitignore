@@ -4,3 +4,4 @@ data/
 *.egg-info
 outputs/
 __pycache__/
+logs/
