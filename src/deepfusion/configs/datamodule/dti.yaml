@@ -5,6 +5,7 @@ data_dir: data
 task: ${task.name}       # drives label mapping + metrics downstream
 batch_size: 8
 use_sampler: true
-num_workers: 12
+num_workers: 6
 pin_memory: true
+prefetch_factor: 2
 use_subset: false        # set true for quick smoke tests

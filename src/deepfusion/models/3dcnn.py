@@ -71,9 +71,15 @@ class Vanilla3DCNN(pl.LightningModule):
         acc = (preds == y).float().mean()
 
         auroc = self.train_auroc if stage == "train" else self.val_auroc
-        log_args = dict(on_step=False, on_epoch=True, prog_bar=True)
 
-        auroc.update(logits, y)
+        if self.num_classes == 2:
+            # For binary, AUROC expects shape [B] with values 0 or 1
+            auroc.update(torch.softmax(logits, dim=1)[:, 1], y)
+        else:
+            # For multiclass, AUROC expects shape [B, num_classes] with class indices
+            auroc.update(logits, y)
+
+        log_args = dict(on_step=False, on_epoch=True, prog_bar=True)
         self.log(f"{stage}_loss", loss, **log_args)
         self.log(f"{stage}_acc", acc, **log_args)
         self.log(f"{stage}_auroc", auroc, **log_args)

@@ -47,48 +47,44 @@ class DTI_Dataset(Dataset):
         self.metadata = pd.read_csv(self.data_dir / "meta_data.csv")
         self.files = sorted((self.data_dir / "dti_maps" / self.stage).glob("**/*.npz"))
 
+        # Precompute label mapping for fast lookup
+        label_col = "cdr" if self.task[-3:] == "cdr" else self.task
+        self.label_map = {
+            (str(row["patient_id"]), str(row["session_id"])): map_label(self.task, row[label_col])
+            for _, row in self.metadata.iterrows()
+        }
+
     def __len__(self):
         return len(self.files)
 
     def __getitem__(self, idx: int):
-        # get the .npz file path
-        npz_file_path = self.files[idx]
+        # get the .npy file path
+        file_path = self.files[idx]
 
         # Load the DTI maps and metadata
-        with np.load(npz_file_path) as data:
+        with np.load(file_path) as data:
             # Stack FA/MD/RD/AD -> (4, D, H, W)
-            print(data.keys())
-            arr = np.stack([data["fa"], data["md"], data["rd"], data["ad"]], axis=0)
-
-            # IDs for label lookup
+            dti_maps = data["dti"]  # shape (4, D, H, W) NOTE: arr[0]=FA, arr[1]=MD, arr[2]=RD, arr[3]=AD
             patient_id = str(data["patient_id"])
             session_id = str(data["session_id"])
 
-            # lookup label in metadata
-            label_col = "cdr" if self.task[-3:] == "cdr" else self.task
-            label = self.metadata.loc[
-                (self.metadata["patient_id"] == patient_id) &
-                (self.metadata["session_id"] == session_id),
-                label_col
-            ].item()
-
-        # Cast labels to tensors
-        num_label = map_label(self.task, label)
+        # Fast label lookup
+        num_label = self.label_map[(patient_id, session_id)]
         if type(num_label) == int:
             y = torch.tensor(num_label).long()  # classification
         else:
             y = torch.tensor(num_label).float() # regression
 
         # Convert dti_maps to PyTorch tensors
-        x = torch.from_numpy(arr).float()
+        x = torch.from_numpy(dti_maps).to(torch.float16)
 
         return x, y 
     
 # test run
 
-# if __name__ == "__main__":
-#     dataset = DTI_Dataset(data_dir="data", stage="train", task="tri_cdr")
-#     print(f"Dataset size: {len(dataset)}")
-#     for i in range(3):
-#         x, y = dataset[i]
-#         print(f"Sample {i}: x shape: {x.shape}, y: {y}")  # should be [4, D, H, W]    
+if __name__ == "__main__":
+    dataset = DTI_Dataset(data_dir="data", stage="train", task="tri_cdr")
+    print(f"Dataset size: {len(dataset)}")
+    for i in range(3):
+        x, y = dataset[i]
+        print(f"Sample {i}: x shape: {x.shape}, y: {y.shape}")  # should be [4, D, H, W]

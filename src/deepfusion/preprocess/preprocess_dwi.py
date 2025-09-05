@@ -1,9 +1,9 @@
-# --- Minimal, readable universal split generator ---
-# Assumptions:
-# - Your CSV has at least: patient, session, cdr, gender, handedness, age
-# - No NaNs, types are already clean
-# - We want ONE robust split for both classification & regression tasks
-# - Strategy: Stratify on a COMPOSITE label (e.g., "cdr|gender|age_bin")
+# --- Universal split generator ---
+# Notes:
+# - Expects CSV with columns: patient_id, session_id, cdr, gender, handedness, age
+# - Assumes data is already cleaned (no NaNs, correct types)
+# - Produces a single split suitable for both classification and regression
+# - Uses a composite stratification label (e.g., "cdr|gender|age_bin")
 
 
 import argparse
@@ -15,6 +15,7 @@ from tqdm import tqdm
 from sklearn.model_selection import StratifiedGroupKFold
 import matplotlib.pyplot as plt
 import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from dipy.io.gradients import read_bvals_bvecs # type: ignore
 from dipy.core.gradients import gradient_table # type: ignore
@@ -28,9 +29,8 @@ def split_and_save(
     val_folds=1,
     test_folds=1,
     seed=42,
-    class_cols=["cdr", "gender"],
-    n_reg_bins=5,
-    map_out="data/patient_split_map.csv"
+    class_cols=["cdr", "gender", "handedness"],
+    n_reg_bins=3
 ):
     df = pd.read_csv(csv_path)
 
@@ -65,13 +65,8 @@ def split_and_save(
     # Save to same CSV
     df.to_csv(csv_path, index=False)
 
-    # Patient -> split map
-    patient_map = df[[group_key, "stage"]].drop_duplicates().sort_values(group_key)
-    patient_map.to_csv(map_out, index=False)
-
     print("Done.")
     print("Wrote:", csv_path)
-    print("Wrote:", map_out)
     print(df["stage"].value_counts())
     print("Unique patients per split:")
     print(df.groupby("stage")[group_key].nunique())
@@ -81,14 +76,16 @@ def process_session(
         dwi_path: str,
         bval_path: str,
         bvec_path: str,
-        metadata: pd.DataFrame
+        metadata: pd.DataFrame,
+        skip_dwi: bool = False,
+        skip_dti: bool = False
 ):
     """
     Load once, normalize DWI, save per-session NPZ,
     compute DTI maps from the same arrays, save NIfTIs.
-    Places outputs under {root}/{split}/{patient}/{session}/...
+    Places outputs under {root}/{split}/{patient_id}/{session_id}/...
     """
-    # Infer patient/session from filename (or pass them in explicitly if you prefer)
+    # Infer patient_id/session_id from filename (or pass them in explicitly if you prefer)
     base = Path(dwi_path).with_suffix("").with_suffix("")  # strip .nii.gz
     name = base.name
 
@@ -99,38 +96,38 @@ def process_session(
     patient_id = sub
     session_id = ses
 
-    print(f"Processing {patient_id}, {session_id}")
+    # print(f"Processing {patient_id}, {session_id}")
 
     row = metadata[(metadata["patient_id"] == patient_id) & (metadata["session_id"] == session_id)]
     stage = row.iloc[0]["stage"]
 
     dwi, bvals, bvecs, affine, header = load_session_data(dwi_path, bval_path, bvec_path)
 
-    dwi_normalised = normalise_dwi(dwi, bvals)
+    if not skip_dwi:
+        dwi_normalised = normalise_dwi(dwi, bvals)
+        dwi_norm_path = f"data/normalised_dwi/{stage}/{patient_id}/{session_id}/{patient_id}_{session_id}_normalised-dwi.npz"
+        os.makedirs(os.path.dirname(dwi_norm_path), exist_ok=True)
+        np.savez(
+            dwi_norm_path,
+            dwi=dwi_normalised,
+            patient_id=patient_id,
+            session_id=session_id,
+            bvals=bvals,
+            bvecs=bvecs
+        )
 
-    dwi_norm_path = f"data/normalised_dwi/{stage}/{patient_id}/{session_id}/{patient_id}_{session_id}_normalised-dwi.npz"
-    os.makedirs(os.path.dirname(dwi_norm_path), exist_ok=True)
-    np.savez_compressed(
-        dwi_norm_path,
-        dwi=dwi_normalised,
-        patient_id=patient_id,
-        session_id=session_id,
-        bvals=bvals,
-        bvecs=bvecs
-    )
-
-    dti_scalar_maps = compute_dti_metrics(dwi, bvals, bvecs)
-
-    dti_scalar_maps_path = f"data/dti_maps/{stage}/{patient_id}/{session_id}/{patient_id}_{session_id}_dti-scalar-maps.npz"
-    os.makedirs(os.path.dirname(dti_scalar_maps_path), exist_ok=True)
-    np.savez_compressed(
-        dti_scalar_maps_path,
-        **dti_scalar_maps,
-        patient_id=patient_id,
-        session_id=session_id,
-        bvals=bvals,
-        bvecs=bvecs
-    )
+    if not skip_dti:
+        dti_scalar_maps = compute_dti_metrics(dwi, bvals, bvecs)
+        dti_scalar_maps_path = f"data/dti_maps/{stage}/{patient_id}/{session_id}/{patient_id}_{session_id}_dti-scalar-maps.npz"
+        os.makedirs(os.path.dirname(dti_scalar_maps_path), exist_ok=True)
+        np.savez(
+            dti_scalar_maps_path,
+            dti=dti_scalar_maps,
+            patient_id=patient_id,
+            session_id=session_id,
+            bvals=bvals,
+            bvecs=bvecs
+        )
 
 
 def load_session_data(dwi_path: str, bval_path: str, bvec_path: str):
@@ -170,7 +167,7 @@ def normalise_dwi(dwi_data: np.ndarray, bvals: np.ndarray) -> np.ndarray:
 
     Returns
     -------
-    dwi_norm : ndarray (float32)
+    dwi_norm : ndarray (float16)
         The fully normalised DWI data (same shape as input).
     """
 
@@ -204,7 +201,7 @@ def normalise_dwi(dwi_data: np.ndarray, bvals: np.ndarray) -> np.ndarray:
     dwi_norm   = (dwi_scaled - mean) / std
 
     # 6) Return the normalised data
-    return dwi_norm.astype(np.float32)
+    return dwi_norm.astype(np.float16)
 
 
 def compute_dti_metrics(
@@ -221,17 +218,16 @@ def compute_dti_metrics(
     model = TensorModel(gtab)
     fit = model.fit(dwi_data, mask=mask)
 
-    fa = np.nan_to_num(fit.fa.astype(np.float32))
-    md = np.nan_to_num(fit.md.astype(np.float32))
-    rd = np.nan_to_num(fit.rd.astype(np.float32))
-    ad = np.nan_to_num(fit.ad.astype(np.float32))
+    fa = np.nan_to_num(fit.fa.astype(np.float16))
+    md = np.nan_to_num(fit.md.astype(np.float16))
+    rd = np.nan_to_num(fit.rd.astype(np.float16))
+    ad = np.nan_to_num(fit.ad.astype(np.float16))
     fa = np.clip(fa, 0, 1)
 
-    out = {"fa": fa, "md": md, "rd": rd, "ad": ad}
-
-    #plot_dti(out)
-
-    return out
+    # Stack metrics into a single array: [0]=fa, [1]=md, [2]=rd, [3]=ad
+    dti = np.stack([fa, md, rd, ad], axis=0)
+    # NOTE: dti[0]=fa, dti[1]=md, dti[2]=rd, dti[3]=ad
+    return dti
 
 def plot_dti(out, z: int = 64):
     """
@@ -261,15 +257,17 @@ def plot_dti(out, z: int = 64):
 def main():
     parser = argparse.ArgumentParser(description="Universal split generator for cleaned DWI dataset.")
     parser.add_argument('--metadata-csv', type=str, default="data/meta_data.csv", help='Path to meta_data.csv (in/out)')
-    parser.add_argument('--group-key', type=str, default="patient", help='Column to group by (default: patient)')
+    parser.add_argument('--group-key', type=str, default="patient_id", help='Column to group by (default: patient_id)')
     parser.add_argument('--folds', type=int, default=10, help='Number of folds (default: 10)')
     parser.add_argument('--val-folds', type=int, default=1, help='Number of folds for validation (default: 1)')
     parser.add_argument('--test-folds', type=int, default=1, help='Number of folds for test (default: 1)')
     parser.add_argument('--seed', type=int, default=42, help='Random seed (default: 42)')
     parser.add_argument('--class-cols', nargs='+', default=["cdr", "gender", "handedness"], help='Columns for composite stratification label (default: cdr gender handedness)')
-    parser.add_argument('--n-reg-bins', type=int, default=5, help='Number of quantile bins for regression column (default: 5)')
-    parser.add_argument('--map-out', type=str, default="data/patient_split_map.csv", help='Path to patient split map output (default: data/patient_split_map.csv)')
+    parser.add_argument('--n-reg-bins', type=int, default=3, help='Number of quantile bins for regression column (default: 3)')
     parser.add_argument('--skip-split', action='store_true', help='Skip splitting if split column already exists')
+    parser.add_argument('--skip-dwi', action='store_true', help='Skip DWI normalisation step')
+    parser.add_argument('--skip-dti', action='store_true', help='Skip DTI map computation step')
+    parser.add_argument('--num-workers', type=int, default=8, help='Number of parallel workers for processing (default: 12)')
 
     args = parser.parse_args()
     if not args.skip_split:
@@ -281,34 +279,34 @@ def main():
             test_folds=args.test_folds,
             seed=args.seed,
             class_cols=args.class_cols,
-            n_reg_bins=args.n_reg_bins,
-            map_out=args.map_out
+            n_reg_bins=args.n_reg_bins
         )
     # Load metadata with splits
     metadata = pd.read_csv(args.metadata_csv)
 
-    # loop over the metadata and process each patients data
-    for _, row in tqdm(metadata.iterrows(), total=len(metadata), desc="Processing sessions"):
-        patient_id = row["patient_id"]
-        session_id = row["session_id"]
-        
-        dwi_path = f"data/cleaned_dwi/{patient_id}/{session_id}/{patient_id}_{session_id}_dwi_allruns.nii.gz"
-        bval_path = f"data/cleaned_dwi/{patient_id}/{session_id}/{patient_id}_{session_id}_dwi_allruns.bval"
-        bvec_path = f"data/cleaned_dwi/{patient_id}/{session_id}/{patient_id}_{session_id}_dwi_allruns.bvec"
+    with ProcessPoolExecutor(max_workers=args.num_workers) as executor:
+        # stores all the jobs i.e. 'Future' objects. Objects are used to query the status of the job
+        futures = []
 
-        try:
-            process_session(
-            dwi_path=dwi_path,
-            bval_path=bval_path,
-            bvec_path=bvec_path,
-            metadata=metadata
-            )
-        except Exception as e:
-            print(f"Error processing {patient_id}_{session_id}: {e}")
-            # Move to next session (continue loop)
-            continue
+        # submit all jobs to the worker pool
+        for _, row in list(metadata.iterrows()):  # limit to first 100 for testing
+            patient_id = row["patient_id"]
+            session_id = row["session_id"]
 
-        
+            # prepare all the arguments for the function
+            dwi_path = f"data/cleaned_dwi/{patient_id}/{session_id}/{patient_id}_{session_id}_dwi_allruns.nii.gz"
+            bval_path = f"data/cleaned_dwi/{patient_id}/{session_id}/{patient_id}_{session_id}_dwi_allruns.bval"
+            bvec_path = f"data/cleaned_dwi/{patient_id}/{session_id}/{patient_id}_{session_id}_dwi_allruns.bvec"
+
+            # submit the job to the pool
+            futures.append(executor.submit(process_session, dwi_path, bval_path, bvec_path, metadata))
+
+        # process the results as they complete
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Processing sessions"):
+            try:
+                future.result()
+            except Exception as e:
+                print(f"Error: {e}")
 
 if __name__ == "__main__":
     main()

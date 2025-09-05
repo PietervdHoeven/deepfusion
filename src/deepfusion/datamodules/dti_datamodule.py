@@ -16,7 +16,7 @@ class DTI_DataModule(pl.LightningDataModule):
         use_sampler: bool = True,
         num_workers: int = 12,
         pin_memory: bool = True,
-        pre_fetch_factor: int = 4,
+        prefetch_factor: int = 4,
         use_subset: bool = False,
     ):
         super().__init__()
@@ -26,7 +26,7 @@ class DTI_DataModule(pl.LightningDataModule):
         self.use_sampler = use_sampler
         self.num_workers = num_workers
         self.pin_memory = pin_memory
-        self.pre_fetch_factor = pre_fetch_factor
+        self.prefetch_factor = prefetch_factor
         self.use_subset = use_subset
 
         self.train_dataset = None
@@ -71,7 +71,7 @@ class DTI_DataModule(pl.LightningDataModule):
             shuffle=shuffle,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
-            prefetch_factor=self.pre_fetch_factor,
+            prefetch_factor=self.prefetch_factor,
             persistent_workers=(self.num_workers > 0),
         )
 
