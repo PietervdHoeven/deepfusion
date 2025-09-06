@@ -2,19 +2,27 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
-from torch.utils.data import DataLoader, random_split, TensorDataset
-from torchmetrics import AUROC
-
+from torchmetrics import AUROC, MeanAbsoluteError
 
 class Vanilla3DCNN(pl.LightningModule):
-    def __init__(self, task: str = "tri_cdr", lr=1e-3):
+    def __init__(self, task: str = "tri_cdr", lr=1e-4):
+        """
+        Modular 3D CNN for both classification (binary/multiclass) and regression (age).
+        The output head and metrics are selected based on the task.
+        Args:
+            task: str, one of "tri_cdr" (3-class), "age" (regression), or any binary task.
+            lr: float, learning rate for Adam optimizer.
+        """
         super().__init__()
-        self.num_classes = 3 if task == "tri_cdr" else 2
+        self.task = task
+        self.lr = lr
         self.save_hyperparameters()
 
-        # Conventional 3D CNN backbone
+        # --- 3D CNN Backbone ---
+        # Applies a series of 3D convolutions, group normalization, ReLU, and max pooling.
+        # Input: [B, 4, 128, 128, 128] (4 channels: e.g., DTI metrics)
         self.features = nn.Sequential(
-            nn.Conv3d(4, 16, kernel_size=3, stride=1, padding=1),   # input: [B,4,128,128,128]
+            nn.Conv3d(4, 16, kernel_size=3, stride=1, padding=1),   # [B,16,128,128,128]
             nn.GroupNorm(4, 16),
             nn.ReLU(inplace=True),
             nn.MaxPool3d(2),  # [B,16,64,64,64]
@@ -40,60 +48,122 @@ class Vanilla3DCNN(pl.LightningModule):
             nn.MaxPool3d(2),  # [B,256,4,4,4]
         )
 
-        # Global average pooling + linear classifier
-        self.classifier = nn.Sequential(
-            nn.AdaptiveAvgPool3d(1),  # [B,256,1,1,1]
-            nn.Flatten(),
-            nn.Linear(256, self.num_classes)
-        )
-
-        # metrics
-        if self.num_classes == 2:
-            # binary AUROC
-            self.train_auroc = AUROC(task="binary")
-            self.val_auroc   = AUROC(task="binary")
+        # --- Output Head and Metrics ---
+        # Selects the output layer and evaluation metrics based on the task.
+        if self.task == "tri_cdr":
+            # 3-class classification (e.g., CDR: 0, 0.5, 1+)
+            self.num_classes = 3
+            self.head = nn.Sequential(
+                nn.AdaptiveAvgPool3d(1),  # Global average pooling to [B,256,1,1,1]
+                nn.Flatten(),             # [B,256]
+                nn.Linear(256, self.num_classes)  # [B,3]
+            )
+            # Macro-averaged multiclass AUROC for evaluation
+            self.train_auroc = AUROC(task="multiclass", num_classes=3, average="macro")
+            self.val_auroc = AUROC(task="multiclass", num_classes=3, average="macro")
+        elif self.task == "age":
+            # Regression (predicting age)
+            self.head = nn.Sequential(
+                nn.AdaptiveAvgPool3d(1),
+                nn.Flatten(),
+                nn.Linear(256, 1)  # Single output for regression
+            )
+            # Mean Absolute Error (MAE) for evaluation
+            self.train_mae = MeanAbsoluteError()
+            self.val_mae = MeanAbsoluteError()
         else:
-            # multiclass Macro-AUROC (OvR)
-            self.train_auroc = AUROC(task="multiclass", num_classes=self.num_classes, average="macro")
-            self.val_auroc   = AUROC(task="multiclass", num_classes=self.num_classes, average="macro")
-
+            # Binary classification (e.g., bin_cdr, gender, handedness)
+            self.head = nn.Sequential(
+                nn.AdaptiveAvgPool3d(1),
+                nn.Flatten(),
+                nn.Linear(256, 1)  # Single logit for BCEWithLogitsLoss
+            )
+            # AUROC for binary classification
+            self.train_auroc = AUROC(task="binary")
+            self.val_auroc = AUROC(task="binary")
 
     def forward(self, x):
+        """
+        Forward pass through the CNN backbone and output head.
+        Args:
+            x: torch.Tensor, shape [B, 4, 128, 128, 128]
+        Returns:
+            Output logits or regression value, depending on task.
+        """
         x = self.features(x)
-        x = self.classifier(x)
+        x = self.head(x)
         return x
     
     def _step(self, batch, stage: str):
+        """
+        Shared step for training/validation.
+        Calculates loss, accuracy, and metrics based on the task.
+        Args:
+            batch: tuple (x, y)
+            stage: "train" or "val"
+        Returns:
+            Loss tensor (for backprop in training)
+        """
         x, y = batch
-        logits = self.forward(x)
-        loss = F.cross_entropy(logits, y)
-        preds = torch.argmax(logits, dim=1)
-        acc = (preds == y).float().mean()
-
-        auroc = self.train_auroc if stage == "train" else self.val_auroc
-
-        if self.num_classes == 2:
-            # For binary, AUROC expects shape [B] with values 0 or 1
-            auroc.update(torch.softmax(logits, dim=1)[:, 1], y)
-        else:
-            # For multiclass, AUROC expects shape [B, num_classes] with class indices
-            auroc.update(logits, y)
-
         log_args = dict(on_step=False, on_epoch=True, prog_bar=True)
-        self.log(f"{stage}_loss", loss, **log_args)
-        self.log(f"{stage}_acc", acc, **log_args)
-        self.log(f"{stage}_auroc", auroc, **log_args)
 
-        return loss
+        if self.task == "tri_cdr":
+            # --- Multiclass classification ---
+            logits = self.forward(x)  # [B, 3]
+            loss = F.cross_entropy(logits, y)  # Cross-entropy loss
+            preds = torch.argmax(logits, dim=1)  # Predicted class indices
+            acc = (preds == y).float().mean()    # Accuracy
+            auroc = self.train_auroc if stage == "train" else self.val_auroc
+            auroc.update(logits, y)              # Update multiclass AUROC
+            # Logging
+            self.log(f"{stage}_loss", loss, **log_args)
+            self.log(f"{stage}_acc", acc, **log_args)
+            self.log(f"{stage}_auroc", auroc, **log_args)
+            return loss
+
+        elif self.task == "age":
+            # --- Regression ---
+            pred = self.forward(x).squeeze(-1)   # [B]
+            loss = F.mse_loss(pred, y.float())   # Mean squared error loss
+            mae = self.train_mae if stage == "train" else self.val_mae
+            mae.update(pred, y.float())          # Update MAE metric
+            # Logging
+            self.log(f"{stage}_loss", loss, **log_args)
+            self.log(f"{stage}_mae", mae, **log_args)
+            return loss
+
+        else:
+            # --- Binary classification ---
+            logits = self.forward(x).squeeze(-1)  # [B]
+            loss = F.binary_cross_entropy_with_logits(logits, y.float())  # BCE loss
+            probs = torch.sigmoid(logits)  # Predicted probabilities
+            preds = (probs > 0.5).long()  # Predicted class (0 or 1)
+            acc = (preds == y).float().mean()             # Accuracy
+            auroc = self.train_auroc if stage == "train" else self.val_auroc
+            auroc.update(probs, y)        # Update binary AUROC
+            # Logging
+            self.log(f"{stage}_loss", loss, **log_args)
+            self.log(f"{stage}_acc", acc, **log_args)
+            self.log(f"{stage}_auroc", auroc, **log_args)
+            return loss
     
     def training_step(self, batch, batch_idx):
+        """
+        Training step: calls _step with 'train' stage.
+        """
         return self._step(batch, stage="train")
     
     def validation_step(self, batch, batch_idx):
+        """
+        Validation step: calls _step with 'val' stage.
+        """
         self._step(batch, stage="val")
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
+        """
+        Adam optimizer with learning rate from hyperparameters.
+        """
+        return torch.optim.Adam(self.parameters(), lr=self.lr)
     
 
 # test run

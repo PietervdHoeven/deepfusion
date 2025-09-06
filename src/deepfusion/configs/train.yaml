@@ -3,7 +3,7 @@
 # Modular training: swap task, model, and dataset
 defaults:
   - _self_
-  - task: gender               # override on CLI: task=bin_cdr / gender / handedness / age
+  - task: gender               # override on CLI: task=bin_cdr / gender / handedness / age / tri_cdr
   - model: 3D_CNN               # override on CLI: model=<another>
   - datamodule: dti             # override on CLI: data=<another>
 

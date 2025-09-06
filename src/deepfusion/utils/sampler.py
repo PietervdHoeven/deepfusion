@@ -3,6 +3,7 @@ from torch.utils.data import Dataset
 from deepfusion.utils.labels import map_label
 from collections import Counter
 import pandas as pd
+import numpy as np
 
 def compute_sample_weights(dataset):
     """
@@ -27,8 +28,19 @@ def compute_sample_weights(dataset):
         raw_labels.append(raw_label)
 
     num_labels = [map_label(dataset.task, label) for label in raw_labels]
-    counts = Counter(num_labels)
-    weights = [1.0 / counts[label] for label in num_labels]
+
+
+    if dataset.task == "age":
+        # Bin ages into 5 bins
+        num_labels_arr = np.array(num_labels)
+        bins = np.linspace(num_labels_arr.min(), num_labels_arr.max(), 6)
+        bin_indices = np.digitize(num_labels_arr, bins, right=False) - 1  # bins: 0-4
+        counts = Counter(bin_indices)
+        weights = [1.0 / counts[bin_idx] for bin_idx in bin_indices]
+    else:
+        counts = Counter(num_labels)
+        weights = [1.0 / counts[label] for label in num_labels]
+
 
     print(f"{len(weights)} weights computed for task {dataset.task} (counts={dict(counts)})")
     return weights

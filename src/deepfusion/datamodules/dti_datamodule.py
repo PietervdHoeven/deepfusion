@@ -14,9 +14,9 @@ class DTI_DataModule(pl.LightningDataModule):
         task: str = "tri_cdr",
         batch_size: int = 32,
         use_sampler: bool = True,
-        num_workers: int = 12,
+        num_workers: int = 0,
         pin_memory: bool = True,
-        prefetch_factor: int = 4,
+        prefetch_factor: int | None = None,
         use_subset: bool = False,
     ):
         super().__init__()
