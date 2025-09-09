@@ -42,10 +42,10 @@ class ResNet3D_18(pl.LightningModule):
         self.maxpool = nn.MaxPool3d(kernel_size=3, stride=2, padding=1)
 
         # ResNet-18 layers
-        self.layer1 = self._make_layer(64, 2)
-        self.layer2 = self._make_layer(128, 2, stride=2)
-        self.layer3 = self._make_layer(256, 2, stride=2)
-        self.layer4 = self._make_layer(512, 2, stride=2)
+        self.layer1 = self._make_layer(64, 1)
+        self.layer2 = self._make_layer(128, 1, stride=2)
+        self.layer3 = self._make_layer(256, 1, stride=2)
+        self.layer4 = self._make_layer(512, 1, stride=2)
 
         self.avgpool = nn.AdaptiveAvgPool3d(1)
 
