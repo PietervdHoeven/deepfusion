@@ -3,9 +3,9 @@
 # Modular training: swap task, model, and dataset
 defaults:
   - _self_
-  - task: bin_cdr               # override on CLI: task=bin_cdr / gender / handedness / age / tri_cdr
-  - model: ResNet3D-18               # override on CLI: model=<another>
-  - datamodule: dti             # override on CLI: data=<another>
+  - task: recon               # override on CLI: task=bin_cdr / gender / handedness / age / tri_cdr
+  - model: AutoEncoder3D               # override on CLI: model=<another>
+  - datamodule: ae             # override on CLI: data=<another>
 
 seed: 42
 test: false

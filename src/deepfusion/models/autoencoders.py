@@ -1,5 +1,7 @@
 import torch
 import torch.nn as nn
+import pytorch_lightning as pl
+import torch.nn.functional as F
 
 from deepfusion.models.blocksv2 import ConvBlock3D, Downsample3D, Upsample3D
 
@@ -70,21 +72,45 @@ class Decoder(nn.Module):
         x_pred = self.head(z)
         return x_pred                             # [B, 1, 128,128,128]
     
-class Autoencoder3D(nn.Module):
-    def __init__(self, in_ch=1, base=16, downsample: str = "learned", upsample: str = "learned"):
+    
+class AutoEncoder3D(pl.LightningModule):
+    def __init__(self, in_ch=1, base=16, downsample: str = "learned", upsample: str = "learned", lr: float = 1e-4):
+        """
+        """
         super().__init__()
         self.encoder = Encoder(in_ch=in_ch, base=base, downsample=downsample)
         self.decoder = Decoder(out_ch=in_ch, base=base, upsample=upsample)
+        self.lr = lr
 
-    def forward(self, x):                       # x: [B, 1, 128,128,128]
-        z = self.encoder(x)                     # [B, 256, 4,4,4]
-        x_pred = self.decoder(z)                 # [B, 1, 128,128,128]
+    def forward(self, x):                           # x: [B, 1, 128,128,128]
+        z = self.encoder(x)                         # [B, 256, 4,4,4]
+        x_pred = self.decoder(z)                    # [B, 1, 128,128,128]
         return x_pred
     
+    def training_step(self, batch, batch_idx):
+        x = batch                               # [B,1,128,128,128]
+        x_hat = self(x)
+        loss = F.mse_loss(x_hat, x)             # conventional AE loss
+        mae = F.l1_loss(x_hat, x)
+        self.log("train_loss", loss, prog_bar=True)
+        self.log("train_mae", mae, prog_bar=True)
+        return loss
 
-# test forward pass
-if __name__ == "__main__":
-    model = Autoencoder3D(in_ch=1, base=16, downsample="learned", upsample="learned")
-    x = torch.randn(50, 1, 128, 128, 128)  # batch of 2 samples
-    x_pred = model(x)
-    print(x_pred.shape)  # should be [2, 1, 128, 128, 128]
+    def validation_step(self, batch, batch_idx):
+        x = batch
+        x_hat = self(x)
+        loss = F.mse_loss(x_hat, x)
+        mae = F.l1_loss(x_hat, x)
+        self.log("val_loss", loss, prog_bar=True)
+        self.log("val_mae", mae, prog_bar=True)
+
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.parameters(), lr=self.lr)
+    
+
+# # test forward pass
+# if __name__ == "__main__":
+#     model = Autoencoder3D(in_ch=1, base=16, downsample="learned", upsample="learned")
+#     x = torch.randn(50, 1, 128, 128, 128)  # batch of 2 samples
+#     x_pred = model(x)
+#     print(x_pred.shape)  # should be [2, 1, 128, 128, 128]

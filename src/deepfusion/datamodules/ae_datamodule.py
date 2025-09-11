@@ -6,7 +6,7 @@ from typing import Optional
 from deepfusion.datasets.ae_dataset import AEDataset
 from deepfusion.utils.sampler import compute_AE_sampler_weights
 
-class DTI_DataModule(pl.LightningDataModule):
+class AE_DataModule(pl.LightningDataModule):
     def __init__(
         self,
         data_dir: str = "data",

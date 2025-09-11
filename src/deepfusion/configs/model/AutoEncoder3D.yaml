@@ -1,0 +1,4 @@
+# configs/model/AutoEncoder3D.yaml
+
+_target_: deepfusion.models.autoencoders.AutoEncoder3D
+lr: 1e-4
