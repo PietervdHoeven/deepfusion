@@ -82,9 +82,9 @@ class DTI_Dataset(Dataset):
     
 # test run
 
-if __name__ == "__main__":
-    dataset = DTI_Dataset(data_dir="data", stage="train", task="tri_cdr")
-    print(f"Dataset size: {len(dataset)}")
-    for i in range(3):
-        x, y = dataset[i]
-        print(f"Sample {i}: x shape: {x.shape}, y: {y.shape}")  # should be [4, D, H, W]
+# if __name__ == "__main__":
+#     dataset = DTI_Dataset(data_dir="data", stage="train", task="tri_cdr")
+#     print(f"Dataset size: {len(dataset)}")
+#     for i in range(3):
+#         x, y = dataset[i]
+#         print(f"Sample {i}: x shape: {x.shape}, y: {y.shape}")  # should be [4, D, H, W]

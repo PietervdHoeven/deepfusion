@@ -112,7 +112,7 @@ model = DeepFusion(
 )
 
 # ---- 2) dummy batch ----
-B, L, D, H, W = 2, 5, 128, 128, 128   # 2 patients, 5 volumes each
+B, L, D, H, W = 1, 65, 128, 128, 128   # 2 patients, 70 volumes each
 x = torch.randn(B, L, D, H, W)        # diffusion volumes
 g = torch.randn(B, L, 4)              # gradient embeddings (bval+bvec)
 
@@ -120,8 +120,9 @@ g = torch.randn(B, L, 4)              # gradient embeddings (bval+bvec)
 attend_mask = torch.ones(B, L, dtype=torch.bool)  # all valid here
 
 # ---- 3) forward pass ----
-loss, x_pred, x_true = model(x, g, attend_mask)
+for _ in range(10):
+    loss, x_pred, x_true = model(x, g, attend_mask)
 
-print("loss:", loss.item())
-print("x_pred:", None if x_pred is None else x_pred.shape)
-print("x_true:", None if x_true is None else x_true.shape)
+    print("loss:", loss.item())
+    print("x_pred:", None if x_pred is None else x_pred.shape)
+    print("x_true:", None if x_true is None else x_true.shape)

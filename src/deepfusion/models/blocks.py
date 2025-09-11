@@ -45,7 +45,11 @@ class BasicBlock3D(nn.Module):
         elif downsample == "avg":
             self.downsample = nn.AvgPool3d(kernel_size=2, stride=2, padding=0)
         elif downsample == "learned":
-            self.downsample = nn.Conv3d(in_channels, out_channels, kernel_size=1, stride=2, padding=0)
+            self.downsample = nn.Sequential(
+                nn.Conv3d(out_channels, out_channels, kernel_size=3, stride=2, padding=1),
+                nn.GroupNorm(8, out_channels),
+                nn.ReLU(inplace=True)
+            )
         else:
             self.downsample = None
 
@@ -55,15 +59,20 @@ class BasicBlock3D(nn.Module):
             out = self.downsample(out)
         return out
 
+
 class ReconBlock3D(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
-        self.deconv = deconv3x3x3(in_channels, out_channels)
-        self.norm = nn.GroupNorm(8, out_channels)
-        self.relu = nn.ReLU(inplace=True)
+        self.upsample = nn.Sequential(
+            deconv3x3x3(in_channels, out_channels),
+            nn.GroupNorm(8, out_channels),
+            nn.ReLU(inplace=True)
+        )
+        self.conv = BasicBlock3D(out_channels, out_channels)
 
     def forward(self, x):
-        out = self.relu(self.norm(self.deconv(x)))
+        out = self.upsample(x)
+        out = self.conv(out)
         return out
     
 

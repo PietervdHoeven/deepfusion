@@ -72,13 +72,46 @@ def split_and_save(
     print(df.groupby("stage")[group_key].nunique())
 
 
+def build_manifest(root="data/normalised_dwi"):
+    rows = []
+    root = Path(root)
+
+    for dwi_path in root.rglob("*normalised-dwi.npy"):
+        session_dir = dwi_path.parent
+
+        # extract stage, patient, session IDs from directory structure
+        # e.g. data/normalised_dwi/{stage}/{patient_id}/{session_id}/{patient_id}_{session_id}_normalised-dwi.npy
+        stage      = session_dir.parts[-3]
+        patient_id = session_dir.parts[-2]
+        session_id = session_dir.parts[-1]
+
+        grads_path = session_dir / f"{patient_id}_{session_id}_grads.npy"
+        grads = np.load(grads_path)   # [N,4]
+        N = grads.shape[0]
+
+        for g_idx in range(N):
+            bval, bx, by, bz = grads[g_idx]
+            rows.append({
+                "stage": stage,
+                "patient_id": patient_id,
+                "session_id": session_id,
+                "dwi_path": str(dwi_path),
+                "grads_path": str(grads_path),
+                "g_idx": g_idx,
+                "bval": float(bval),
+                "bx": float(bx), "by": float(by), "bz": float(bz),
+            })
+
+    return pd.DataFrame(rows)
+
+
 def process_session(
         dwi_path: str,
         bval_path: str,
         bvec_path: str,
         metadata: pd.DataFrame,
         skip_dwi: bool = False,
-        skip_dti: bool = False
+        skip_dti: bool = True
 ):
     """
     Load once, normalize DWI, save per-session NPZ,
@@ -105,16 +138,15 @@ def process_session(
 
     if not skip_dwi:
         dwi_normalised = normalise_dwi(dwi, bvals)
-        dwi_norm_path = f"data/normalised_dwi/{stage}/{patient_id}/{session_id}/{patient_id}_{session_id}_normalised-dwi.npz"
-        os.makedirs(os.path.dirname(dwi_norm_path), exist_ok=True)
-        np.savez(
-            dwi_norm_path,
-            dwi=dwi_normalised,
-            patient_id=patient_id,
-            session_id=session_id,
-            bvals=bvals,
-            bvecs=bvecs
-        )
+        grads = np.column_stack([bvals, bvecs])     # [N,4]
+
+        out_dir = Path(f"data/normalised_dwi_session/{stage}/{patient_id}/{session_id}")
+        os.makedirs(out_dir, exist_ok=True)
+
+        # Save per-session DWI array (memmap-friendly)
+        np.save(out_dir / f"{patient_id}_{session_id}_normalised-dwi.npy", dwi_normalised)  # [G, D, H, W]
+
+        np.save(out_dir / f"{patient_id}_{session_id}_grads.npy", grads.astype(np.float32, copy=False)) # [G, 4]
 
     if not skip_dti:
         dti_scalar_maps = compute_dti_metrics(dwi, bvals, bvecs)
@@ -200,6 +232,9 @@ def normalise_dwi(dwi_data: np.ndarray, bvals: np.ndarray) -> np.ndarray:
     std        = dwi_values.std() + 1e-6
     dwi_norm   = (dwi_scaled - mean) / std
 
+    # Reshape dwi_norm to (N_b0, X, Y, Z)
+    dwi_norm = np.moveaxis(dwi_norm, -1, 0)
+
     # 6) Return the normalised data
     return dwi_norm.astype(np.float16)
 
@@ -267,6 +302,7 @@ def main():
     parser.add_argument('--skip-split', action='store_true', help='Skip splitting if split column already exists')
     parser.add_argument('--skip-dwi', action='store_true', help='Skip DWI normalisation step')
     parser.add_argument('--skip-dti', action='store_true', help='Skip DTI map computation step')
+    parser.add_argument('--build-manifest', action='store_true', help='Build a manifest CSV of all DWI volumes and gradients')
     parser.add_argument('--num-workers', type=int, default=8, help='Number of parallel workers for processing (default: 12)')
 
     args = parser.parse_args()
@@ -299,7 +335,12 @@ def main():
             bvec_path = f"data/cleaned_dwi/{patient_id}/{session_id}/{patient_id}_{session_id}_dwi_allruns.bvec"
 
             # submit the job to the pool
-            futures.append(executor.submit(process_session, dwi_path, bval_path, bvec_path, metadata))
+            futures.append(
+                executor.submit(
+                    process_session, dwi_path, bval_path, bvec_path, metadata,
+                    skip_dwi=args.skip_dwi, skip_dti=args.skip_dti
+                )
+            )
 
         # process the results as they complete
         for future in tqdm(as_completed(futures), total=len(futures), desc="Processing sessions"):
@@ -307,6 +348,26 @@ def main():
                 future.result()
             except Exception as e:
                 print(f"Error: {e}")
+
+    # for _, row in tqdm(list(metadata.iterrows()), total=len(metadata), desc="Processing sessions"):
+    #     patient_id = row["patient_id"]
+    #     session_id = row["session_id"]
+
+    #     # prepare all the arguments for the function
+    #     dwi_path = f"data/cleaned_dwi/{patient_id}/{session_id}/{patient_id}_{session_id}_dwi_allruns.nii.gz"
+    #     bval_path = f"data/cleaned_dwi/{patient_id}/{session_id}/{patient_id}_{session_id}_dwi_allruns.bval"
+    #     bvec_path = f"data/cleaned_dwi/{patient_id}/{session_id}/{patient_id}_{session_id}_dwi_allruns.bvec"
+
+    #     # process the session
+    #     process_session(dwi_path, bval_path, bvec_path, metadata,
+    #                     skip_dwi=args.skip_dwi, skip_dti=args.skip_dti)
+    
+    if args.build_manifest:
+        manifest = build_manifest(root="data/normalised_dwi_session")
+        manifest_path = "data/normalised_dwi_session/manifest.csv"
+        manifest.to_csv(manifest_path, index=False)
+        print("Wrote manifest:", manifest_path)
+        print(manifest.head())
 
 if __name__ == "__main__":
     main()
