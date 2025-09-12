@@ -320,9 +320,10 @@ def main():
     # Load metadata with splits
     metadata = pd.read_csv(args.metadata_csv)
 
-    with ProcessPoolExecutor(max_workers=args.num_workers) as executor:
-        # stores all the jobs i.e. 'Future' objects. Objects are used to query the status of the job
-        futures = []
+    if not args.skip_dwi and not args.skip_dti:
+        with ProcessPoolExecutor(max_workers=args.num_workers) as executor:
+            # stores all the jobs i.e. 'Future' objects. Objects are used to query the status of the job
+            futures = []
 
         # submit all jobs to the worker pool
         for _, row in list(metadata.iterrows()):  # limit to first 100 for testing

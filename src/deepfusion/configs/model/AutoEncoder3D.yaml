@@ -1,4 +1,10 @@
 # configs/model/AutoEncoder3D.yaml
 
 _target_: deepfusion.models.autoencoders.AutoEncoder3D
-lr: 1e-4
+lr: 1e-3
+dropout: true
+weight_decay: 1e-3
+base: 8
+downsample: avg        # "max", "avg", or "learned"
+upsample: trilinear   # "trilinear" or "learned"
+in_ch: 1

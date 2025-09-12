@@ -3,14 +3,19 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class ConvBlock3D(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, dropout=0.0):
         super().__init__()
         self.conv = nn.Conv3d(in_channels, out_channels, kernel_size, stride, padding)
         self.norm = nn.GroupNorm(8, out_channels)
         self.relu = nn.ReLU(inplace=True)
+        self.drop = nn.Dropout3d(p=dropout) if dropout > 0 else nn.Identity()
 
     def forward(self, x):
-        return self.relu(self.norm(self.conv(x)))
+        x = self.conv(x)
+        x = self.norm(x)
+        x = self.relu(x)
+        x = self.drop(x)
+        return x
     
 class Downsample3D(nn.Module):
     def __init__(self, in_channels, out_channels, downsample: str = "learned"):

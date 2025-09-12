@@ -36,7 +36,7 @@ class AEDataset(Dataset):
         arr = np.load(dwi_path, mmap_mode="r")      # shape [N,D,H,W]
         vol = arr[g]                                # view [D,H,W], zero-copy on CPU
 
-        x = torch.from_numpy(vol).unsqueeze(0)      # [1,D,H,W], dtype matches on-disk (likely float16)
+        x = torch.from_numpy(vol).unsqueeze(0).to(dtype=torch.float32)      # [1,D,H,W]
 
         return x
 

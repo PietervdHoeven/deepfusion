@@ -38,11 +38,11 @@ class AE_DataModule(pl.LightningDataModule):
 
             # NOTE: This is fragile! Only use for quick testing and you are sure that meta_data.csv and files are a perfect match.
             if self.use_subset:
-                self.train_dataset = Subset(self.train_dataset, np.arange(0, 100))      
-                self.train_dataset.manifest = self.train_dataset.dataset.manifest[:100]
+                self.train_dataset = Subset(self.train_dataset, np.arange(0, 1000))      
+                self.train_dataset.manifest = self.train_dataset.dataset.manifest[:1000]
                 self.train_dataset.data_dir = self.train_dataset.dataset.data_dir
-                self.val_dataset = Subset(self.val_dataset, np.arange(0, 20))
-                self.val_dataset.manifest = self.val_dataset.dataset.manifest[:20]
+                self.val_dataset = Subset(self.val_dataset, np.arange(0, 200))
+                self.val_dataset.manifest = self.val_dataset.dataset.manifest[:200]
                 self.val_dataset.data_dir = self.val_dataset.dataset.data_dir
 
             if self.use_sampler:
