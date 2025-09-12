@@ -42,7 +42,7 @@ def main(cfg: DictConfig) -> None:
     trainer: Trainer = instantiate(cfg.trainer, logger=logger, callbacks=callbacks)
 
     # Fit
-    trainer.fit(model=model, datamodule=datamodule)
+    trainer.fit(model=model, datamodule=datamodule, ckpt_path=cfg.ckpt_path)
 
 
 if __name__ == "__main__":

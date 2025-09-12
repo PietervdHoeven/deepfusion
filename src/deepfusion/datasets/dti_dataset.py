@@ -45,7 +45,7 @@ class DTI_Dataset(Dataset):
         self.stage = stage
         self.task = task
         self.metadata = pd.read_csv(self.data_dir / "meta_data.csv")
-        self.files = sorted((self.data_dir / "dti_maps" / self.stage).glob("**/*.npz"))
+        self.files = sorted((self.data_dir / "baselines" / self.stage).glob("**/*.npz"))
 
         # Precompute label mapping for fast lookup
         label_col = "cdr" if self.task[-3:] == "cdr" else self.task

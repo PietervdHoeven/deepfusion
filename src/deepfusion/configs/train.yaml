@@ -10,6 +10,8 @@ defaults:
 seed: 42
 test: false
 
+ckpt_path: null            # path to checkpoint to resume training from (optional)
+
 logger:
   _target_: pytorch_lightning.loggers.TensorBoardLogger
   save_dir: logs
@@ -19,7 +21,7 @@ early_stopping:
   _target_: pytorch_lightning.callbacks.EarlyStopping
   monitor: ${task.monitor}     # e.g., val_auroc or val_mae
   mode: ${task.mode}           # "max" for AUROC, "min" for MAE
-  patience: 8
+  patience: 3                  # 8 for CNNs, 3 for AE
   min_delta: 0.001
 
 checkpoint:
@@ -27,7 +29,8 @@ checkpoint:
   monitor: ${task.monitor}
   mode: ${task.mode}
   save_top_k: 1
-  filename: best-{epoch:02d}
+  filename: best-epoch:{epoch:02d}-val_loss:{val_loss:.4f}
+  auto_insert_metric_name: false
 
 # DataModule selection comes entirely from the data group
 datamodule: ${datamodule.module}

@@ -2,8 +2,9 @@
 
 _target_: deepfusion.datamodules.ae_datamodule.AE_DataModule
 data_dir: data
-batch_size: 24
+batch_size: 12
 use_sampler: true
-num_workers: 2
+num_workers: 8
 pin_memory: true
 use_subset: false        # set true for quick smoke tests
+prefetch_factor: 4

@@ -11,7 +11,7 @@ class AEDataset(Dataset):
     Directory layout (example):
       repo_root/
         data/
-          normalised_dwi_session/
+          deepfusion/
             train/sub-XXXX/ses-YYYY/sub-XXXX_ses-YYYY_normalised-dwi.npy
             val/  ...
             test/ ...
@@ -20,7 +20,7 @@ class AEDataset(Dataset):
     def __init__(self, data_dir: Path, stage: str):
         self.data_dir = Path(data_dir)
         self.stage = stage
-        self.manifest = pd.read_csv(self.data_dir / "normalised_dwi_session" / "manifest.csv")
+        self.manifest = pd.read_csv(self.data_dir / "deepfusion" / "manifest.csv")
         self.manifest = self.manifest[self.manifest["stage"] == self.stage]
 
     def __len__(self):

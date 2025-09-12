@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import pytorch_lightning as pl
 import torch.nn.functional as F
+import time
 
 from deepfusion.models.blocksv2 import ConvBlock3D, Downsample3D, Upsample3D
 
@@ -22,7 +23,7 @@ class Encoder(nn.Module):
         self.down4 = Downsample3D(base*8, base*8, downsample)       # (128, 8³)
         self.conv5 = ConvBlock3D(base*8, base*16)                   # (256, 8³)
         self.down5 = Downsample3D(base*16, base*16, downsample)     # (256, 4³)
-        self.conv6 = ConvBlock3D(base*16, base*16)                  # (256, 4³)
+        self.conv6 = ConvBlock3D(base*16, base*32)                  # (256, 4³)
 
 
     def forward(self, x):                               # x: [B, 1, 128,128,128]
@@ -46,7 +47,7 @@ class Decoder(nn.Module):
     """
     def __init__(self, out_ch=1, base=16, upsample: str = "learned"):
         super().__init__()
-        self.conv1 = ConvBlock3D(base*16, base*16)                  # (256, 4³)
+        self.conv1 = ConvBlock3D(base*32, base*16)                  # (256, 4³)
         self.up1   = Upsample3D(base*16, base*16, upsample)         # (256, 8³)
         self.conv2 = ConvBlock3D(base*16, base*8)                   # (128, 8³)
         self.up2   = Upsample3D(base*8, base*8, upsample)           # (128, 16³)
@@ -74,7 +75,7 @@ class Decoder(nn.Module):
     
     
 class AutoEncoder3D(pl.LightningModule):
-    def __init__(self, in_ch=1, base=16, downsample: str = "learned", upsample: str = "learned", lr: float = 1e-4):
+    def __init__(self, in_ch=1, base=8, downsample: str = "max", upsample: str = "trilinear", lr: float = 1e-4):
         """
         """
         super().__init__()
@@ -88,21 +89,21 @@ class AutoEncoder3D(pl.LightningModule):
         return x_pred
     
     def training_step(self, batch, batch_idx):
-        x = batch                               # [B,1,128,128,128]
+        x = batch                                   # [B,1,128,128,128]
         x_hat = self(x)
-        loss = F.mse_loss(x_hat, x)             # conventional AE loss
-        mae = F.l1_loss(x_hat, x)
-        self.log("train_loss", loss, prog_bar=True)
-        self.log("train_mae", mae, prog_bar=True)
+        loss = F.l1_loss(x_hat, x)  # MAE loss
+        self.log("train_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
+        self.logger.experiment.add_scalars("loss", {"train": loss}, self.current_epoch)
         return loss
 
     def validation_step(self, batch, batch_idx):
         x = batch
         x_hat = self(x)
-        loss = F.mse_loss(x_hat, x)
-        mae = F.l1_loss(x_hat, x)
-        self.log("val_loss", loss, prog_bar=True)
-        self.log("val_mae", mae, prog_bar=True)
+
+        with torch.no_grad():
+            mae = (x_hat.detach() - x).abs().mean()
+        self.log("val_loss", mae, prog_bar=True, on_step=False, on_epoch=True)
+        self.logger.experiment.add_scalars("loss", {"val": mae}, self.current_epoch)
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.lr)

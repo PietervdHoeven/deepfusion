@@ -72,7 +72,7 @@ def split_and_save(
     print(df.groupby("stage")[group_key].nunique())
 
 
-def build_manifest(root="data/normalised_dwi"):
+def build_manifest(root="data/deepfusion"):
     rows = []
     root = Path(root)
 
@@ -140,7 +140,7 @@ def process_session(
         dwi_normalised = normalise_dwi(dwi, bvals)
         grads = np.column_stack([bvals, bvecs])     # [N,4]
 
-        out_dir = Path(f"data/normalised_dwi_session/{stage}/{patient_id}/{session_id}")
+        out_dir = Path(f"data/deepfusion/{stage}/{patient_id}/{session_id}")
         os.makedirs(out_dir, exist_ok=True)
 
         # Save per-session DWI array (memmap-friendly)
@@ -150,7 +150,7 @@ def process_session(
 
     if not skip_dti:
         dti_scalar_maps = compute_dti_metrics(dwi, bvals, bvecs)
-        dti_scalar_maps_path = f"data/dti_maps/{stage}/{patient_id}/{session_id}/{patient_id}_{session_id}_dti-scalar-maps.npz"
+        dti_scalar_maps_path = f"data/baselines/{stage}/{patient_id}/{session_id}/{patient_id}_{session_id}_dti-scalar-maps.npz"
         os.makedirs(os.path.dirname(dti_scalar_maps_path), exist_ok=True)
         np.savez(
             dti_scalar_maps_path,
@@ -330,9 +330,9 @@ def main():
             session_id = row["session_id"]
 
             # prepare all the arguments for the function
-            dwi_path = f"data/cleaned_dwi/{patient_id}/{session_id}/{patient_id}_{session_id}_dwi_allruns.nii.gz"
-            bval_path = f"data/cleaned_dwi/{patient_id}/{session_id}/{patient_id}_{session_id}_dwi_allruns.bval"
-            bvec_path = f"data/cleaned_dwi/{patient_id}/{session_id}/{patient_id}_{session_id}_dwi_allruns.bvec"
+            dwi_path = f"data/cleaned/{patient_id}/{session_id}/{patient_id}_{session_id}_dwi_allruns.nii.gz"
+            bval_path = f"data/cleaned/{patient_id}/{session_id}/{patient_id}_{session_id}_dwi_allruns.bval"
+            bvec_path = f"data/cleaned/{patient_id}/{session_id}/{patient_id}_{session_id}_dwi_allruns.bvec"
 
             # submit the job to the pool
             futures.append(
@@ -363,8 +363,8 @@ def main():
     #                     skip_dwi=args.skip_dwi, skip_dti=args.skip_dti)
     
     if args.build_manifest:
-        manifest = build_manifest(root="data/normalised_dwi_session")
-        manifest_path = "data/normalised_dwi_session/manifest.csv"
+        manifest = build_manifest(root="data/deepfusion")
+        manifest_path = "data/deepfusion/manifest.csv"
         manifest.to_csv(manifest_path, index=False)
         print("Wrote manifest:", manifest_path)
         print(manifest.head())
