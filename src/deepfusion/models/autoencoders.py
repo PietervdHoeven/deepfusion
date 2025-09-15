@@ -2,11 +2,11 @@ import torch
 import torch.nn as nn
 import pytorch_lightning as pl
 import torch.nn.functional as F
-
-import time
+import numpy as np
 
 from deepfusion.models.blocksv2 import ConvBlock3D, Downsample3D, Upsample3D
 from deepfusion.utils.losses import masked_mae
+from deepfusion.utils.evaluation import plot_slices
 
 class Encoder(nn.Module):
     """
@@ -85,6 +85,7 @@ class AutoEncoder3D(pl.LightningModule):
         self.decoder = Decoder(out_ch=in_ch, base=base, upsample=upsample)
         self.lr = lr
         self.weight_decay = weight_decay
+        self.mean_img = np.load("data/deepfusion/volumes/test/mean_image_testset.npy")  # shape (D,H,W)
         self.save_hyperparameters()
 
     def forward(self, x):                           # x: [B, 1, 128,128,128]
@@ -97,16 +98,40 @@ class AutoEncoder3D(pl.LightningModule):
         x_hat = self(x) * mask                        # [B,1,128,128,128]  (zero background)
         loss = masked_mae(x_hat, x, mask)
         self.log("train_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
-        #self.logger.experiment.add_scalars("loss", {"train": loss}, self.current_epoch)
         return loss
 
     def validation_step(self, batch, batch_idx):
         x, mask = batch
         x_hat = self(x)
-
         loss = masked_mae(x_hat, x, mask)
         self.log("val_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
-        #self.logger.experiment.add_scalars("loss", {"val": loss}, self.current_epoch)
+
+
+    def test_step(self, batch, batch_idx):
+        x, mask = batch
+
+        x_hat = self(x)
+        zero_pred = torch.zeros_like(x_hat)
+        mean_pred = torch.from_numpy(self.mean_img)[None, None, ...].to(device=x.device, dtype=x.dtype).expand_as(x_hat)
+
+        # masked MAE for model, zero, mean
+        loss_zero = masked_mae(zero_pred, x, mask)
+        loss_mean = masked_mae(mean_pred, x, mask)  
+        loss_model = masked_mae(x_hat, x, mask)
+
+        self.log("mae_model", loss_model, prog_bar=True, on_step=False, on_epoch=True)
+        self.log("mae_zero", loss_zero, prog_bar=False, on_step=False, on_epoch=True)
+        self.log("mae_mean", loss_mean, prog_bar=False, on_step=False, on_epoch=True)
+
+
+    def on_test_batch_end(self, outputs, batch, batch_idx, dataloader_idx = 0):
+        if batch_idx < 5: # log first 5 samples
+            x, mask, patient_ids, session_ids = batch
+            x_hat = self(x)
+            mean_img = torch.from_numpy(self.mean_img)[None, None, ...].to(device=x.device, dtype=x.dtype).expand_as(x_hat)
+
+            images = plot_slices(x[0], x_hat[0], mean_img[0], mask[0]) # [5, 1, H, W]
+            self.logger.experiment.add_images(f"sample_{batch_idx}", images, global_step=self.global_step, dataformats="NCHW")
 
 
     def configure_optimizers(self):

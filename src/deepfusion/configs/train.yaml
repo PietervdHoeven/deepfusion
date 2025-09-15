@@ -15,7 +15,7 @@ ckpt_path: null            # path to checkpoint to resume training from (optiona
 logger:
   _target_: pytorch_lightning.loggers.TensorBoardLogger
   save_dir: logs
-  name: ${hydra:runtime.choices.task}-${hydra:runtime.choices.model} # TODO: fix naming
+  name: ${hydra:runtime.choices.task}-${hydra:runtime.choices.model}/train
 
 early_stopping:
   _target_: pytorch_lightning.callbacks.EarlyStopping

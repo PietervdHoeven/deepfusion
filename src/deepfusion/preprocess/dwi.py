@@ -142,7 +142,7 @@ def process_session(
         dwi_normalised, brain_mask = normalise_dwi(dwi, bvals)
         grads = np.column_stack([bvals, bvecs])     # [N,4]
 
-        out_dir = Path(f"data/deepfusion_wmask/{stage}/{patient_id}/{session_id}")
+        out_dir = Path(f"data/deepfusion/volumes/{stage}/{patient_id}/{session_id}")
         os.makedirs(out_dir, exist_ok=True)
 
         # Save per-session DWI array (memmap-friendly)
@@ -373,8 +373,8 @@ def main():
     #                     skip_dwi=args.skip_dwi, skip_dti=args.skip_dti)
     
     if args.build_manifest:
-        manifest = build_manifest(root="data/deepfusion_wmask")
-        manifest_path = "data/deepfusion_wmask/manifest.csv"
+        manifest = build_manifest(root="data/deepfusion/volumes")
+        manifest_path = "data/deepfusion/volumes/manifest.csv"
         manifest.to_csv(manifest_path, index=False)
         print("Wrote manifest:", manifest_path)
         print(manifest.head())
