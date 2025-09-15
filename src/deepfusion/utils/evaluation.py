@@ -89,7 +89,7 @@ def plot_slices(x, x_hat, mean_image, mask, z_idx=None):
     x_hat.to(device="cpu")
     mean_image.to(device="cpu")
 
-    print(f"mask shape: {mask.shape}, x shape: {x.shape}, x_hat shape: {x_hat.shape}, mean_image shape: {mean_image.shape}")
+    # print(f"mask shape: {mask.shape}, x shape: {x.shape}, x_hat shape: {x_hat.shape}, mean_image shape: {mean_image.shape}")
 
     # Pick the first gradient for visualization
     m   = mask[0, :, :, z_idx]                                # [1, H,W]
@@ -117,7 +117,6 @@ def plot_slices(x, x_hat, mean_image, mask, z_idx=None):
 
     # Concatenate horizontally: [5, 1, H, W]
     grid = torch.cat([panel_input, panel_ae, panel_mean, panel_r_ae, panel_r_mean], dim=0).float().unsqueeze(1)
-    print(grid.shape)
 
     return grid  # CHW for TensorBoard add_image
 
