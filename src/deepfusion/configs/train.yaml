@@ -21,7 +21,7 @@ early_stopping:
   _target_: pytorch_lightning.callbacks.EarlyStopping
   monitor: ${task.monitor}     # e.g., val_auroc or val_mae
   mode: ${task.mode}           # "max" for AUROC, "min" for MAE
-  patience: 8                  # 8 epochs of no improvement allows for LRonPlateau to reduce LR e-3 -> e-4 -> e-5 -> e-6 with patience 3 each
+  patience: 12                  # 12 epochs of no improvement allows for LRonPlateau to reduce LR e-3 -> e-4 -> e-5 -> e-6 with patience 4 each
   min_delta: 0.001
 
 checkpoint:
@@ -44,4 +44,5 @@ trainer:
   accelerator: auto
   devices: 1
   log_every_n_steps: 10
+  overfit_batches: 0.0          # use small fraction of batches for overfitting test; set to 0.0 for normal training
   precision: 16-mixed                  # mixed precision training

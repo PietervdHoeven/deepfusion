@@ -86,6 +86,7 @@ def build_manifest(root="data/deepfusion"):
         session_id = session_dir.parts[-1]
 
         grads_path = session_dir / f"{patient_id}_{session_id}_grads.npy"
+        brain_mask_path = session_dir / f"{patient_id}_{session_id}_brain-mask.npy"
         grads = np.load(grads_path)   # [N,4]
         N = grads.shape[0]
 
@@ -97,6 +98,7 @@ def build_manifest(root="data/deepfusion"):
                 "session_id": session_id,
                 "dwi_path": str(dwi_path),
                 "grads_path": str(grads_path),
+                "brain_mask_path": str(brain_mask_path),
                 "g_idx": g_idx,
                 "bval": float(bval),
                 "bx": float(bx), "by": float(by), "bz": float(bz),
@@ -137,14 +139,16 @@ def process_session(
     dwi, bvals, bvecs, affine, header = load_session_data(dwi_path, bval_path, bvec_path)
 
     if not skip_dwi:
-        dwi_normalised = normalise_dwi(dwi, bvals)
+        dwi_normalised, brain_mask = normalise_dwi(dwi, bvals)
         grads = np.column_stack([bvals, bvecs])     # [N,4]
 
-        out_dir = Path(f"data/deepfusion/{stage}/{patient_id}/{session_id}")
+        out_dir = Path(f"data/deepfusion_wmask/{stage}/{patient_id}/{session_id}")
         os.makedirs(out_dir, exist_ok=True)
 
         # Save per-session DWI array (memmap-friendly)
         np.save(out_dir / f"{patient_id}_{session_id}_normalised-dwi.npy", dwi_normalised)  # [G, D, H, W]
+
+        np.save(out_dir / f"{patient_id}_{session_id}_brain-mask.npy", brain_mask.astype(np.uint8, copy=False))  # [D, H, W]
 
         np.save(out_dir / f"{patient_id}_{session_id}_grads.npy", grads.astype(np.float32, copy=False)) # [G, 4]
 
@@ -201,10 +205,12 @@ def normalise_dwi(dwi_data: np.ndarray, bvals: np.ndarray) -> np.ndarray:
     -------
     dwi_norm : ndarray (float16)
         The fully normalised DWI data (same shape as input).
+    mask : np.ndarray
+        Brain mask, shape (X, Y, Z), bool.
     """
 
-    # 1) Identify all b0 volumes (b-value == 0)
-    b0_indices  = np.where(bvals == 0)[0]         # e.g. array([0, 10, 20])
+    # 1) Identify all b0 volumes (b-value <= 0)
+    b0_indices  = np.where(bvals <= 50)[0]         # e.g. array([0, 10, 20])
 
     # 2) Extract those b0 volumes and form a union-mask of nonzero voxels
     #    (handles slight mis-alignments: if any run has signal, we treat it as brain)
@@ -232,11 +238,14 @@ def normalise_dwi(dwi_data: np.ndarray, bvals: np.ndarray) -> np.ndarray:
     std        = dwi_values.std() + 1e-6
     dwi_norm   = (dwi_scaled - mean) / std
 
+    # 5) Enforce zero background AFTER normalization
+    dwi_norm = dwi_norm * mask[..., None]           # broadcast mask over volumes
+
     # Reshape dwi_norm to (N_b0, X, Y, Z)
     dwi_norm = np.moveaxis(dwi_norm, -1, 0)
 
-    # 6) Return the normalised data
-    return dwi_norm.astype(np.float16)
+    # 6) Return the normalised data and the mask as bool
+    return dwi_norm.astype(np.float16), mask.astype(np.bool_)
 
 
 def compute_dti_metrics(
@@ -320,35 +329,35 @@ def main():
     # Load metadata with splits
     metadata = pd.read_csv(args.metadata_csv)
 
-    if not args.skip_dwi and not args.skip_dti:
+    if not (args.skip_dwi and args.skip_dti):
         with ProcessPoolExecutor(max_workers=args.num_workers) as executor:
             # stores all the jobs i.e. 'Future' objects. Objects are used to query the status of the job
             futures = []
 
-        # submit all jobs to the worker pool
-        for _, row in list(metadata.iterrows()):  # limit to first 100 for testing
-            patient_id = row["patient_id"]
-            session_id = row["session_id"]
+            # submit all jobs to the worker pool
+            for _, row in list(metadata.iterrows()):  # limit to first 100 for testing
+                patient_id = row["patient_id"]
+                session_id = row["session_id"]
 
-            # prepare all the arguments for the function
-            dwi_path = f"data/cleaned/{patient_id}/{session_id}/{patient_id}_{session_id}_dwi_allruns.nii.gz"
-            bval_path = f"data/cleaned/{patient_id}/{session_id}/{patient_id}_{session_id}_dwi_allruns.bval"
-            bvec_path = f"data/cleaned/{patient_id}/{session_id}/{patient_id}_{session_id}_dwi_allruns.bvec"
+                # prepare all the arguments for the function
+                dwi_path = f"data/cleaned/{patient_id}/{session_id}/{patient_id}_{session_id}_dwi_allruns.nii.gz"
+                bval_path = f"data/cleaned/{patient_id}/{session_id}/{patient_id}_{session_id}_dwi_allruns.bval"
+                bvec_path = f"data/cleaned/{patient_id}/{session_id}/{patient_id}_{session_id}_dwi_allruns.bvec"
 
-            # submit the job to the pool
-            futures.append(
-                executor.submit(
-                    process_session, dwi_path, bval_path, bvec_path, metadata,
-                    skip_dwi=args.skip_dwi, skip_dti=args.skip_dti
+                # submit the job to the pool
+                futures.append(
+                    executor.submit(
+                        process_session, dwi_path, bval_path, bvec_path, metadata,
+                        skip_dwi=args.skip_dwi, skip_dti=args.skip_dti
+                    )
                 )
-            )
 
-        # process the results as they complete
-        for future in tqdm(as_completed(futures), total=len(futures), desc="Processing sessions"):
-            try:
-                future.result()
-            except Exception as e:
-                print(f"Error: {e}")
+            # process the results as they complete
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Processing sessions"):
+                try:
+                    future.result()
+                except Exception as e:
+                    print(f"Error: {e}")
 
     # for _, row in tqdm(list(metadata.iterrows()), total=len(metadata), desc="Processing sessions"):
     #     patient_id = row["patient_id"]
@@ -364,8 +373,8 @@ def main():
     #                     skip_dwi=args.skip_dwi, skip_dti=args.skip_dti)
     
     if args.build_manifest:
-        manifest = build_manifest(root="data/deepfusion")
-        manifest_path = "data/deepfusion/manifest.csv"
+        manifest = build_manifest(root="data/deepfusion_wmask")
+        manifest_path = "data/deepfusion_wmask/manifest.csv"
         manifest.to_csv(manifest_path, index=False)
         print("Wrote manifest:", manifest_path)
         print(manifest.head())

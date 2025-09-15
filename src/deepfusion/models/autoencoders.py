@@ -6,6 +6,7 @@ import torch.nn.functional as F
 import time
 
 from deepfusion.models.blocksv2 import ConvBlock3D, Downsample3D, Upsample3D
+from deepfusion.utils.losses import masked_mae
 
 class Encoder(nn.Module):
     """
@@ -92,20 +93,20 @@ class AutoEncoder3D(pl.LightningModule):
         return x_pred
     
     def training_step(self, batch, batch_idx):
-        x = batch                                   # [B,1,128,128,128]
-        x_hat = self(x)
-        loss = F.l1_loss(x_hat, x)  # MAE loss
+        x, mask = batch                                   # [B,1,128,128,128]
+        x_hat = self(x) * mask                        # [B,1,128,128,128]  (zero background)
+        loss = masked_mae(x_hat, x, mask)
         self.log("train_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
-        self.logger.experiment.add_scalars("loss", {"train": loss}, self.current_epoch)
+        #self.logger.experiment.add_scalars("loss", {"train": loss}, self.current_epoch)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        x = batch
+        x, mask = batch
         x_hat = self(x)
 
-        loss = F.l1_loss(x_hat, x)  # MAE loss
+        loss = masked_mae(x_hat, x, mask)
         self.log("val_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
-        self.logger.experiment.add_scalars("loss", {"val": loss}, self.current_epoch)
+        #self.logger.experiment.add_scalars("loss", {"val": loss}, self.current_epoch)
 
 
     def configure_optimizers(self):
@@ -130,7 +131,7 @@ class AutoEncoder3D(pl.LightningModule):
             optimizer,
             mode="min",
             factor=0.1,
-            patience=3,
+            patience=4,
             min_lr=1e-6,
         )
         return {

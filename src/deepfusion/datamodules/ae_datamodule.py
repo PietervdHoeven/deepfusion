@@ -13,7 +13,7 @@ class AE_DataModule(pl.LightningDataModule):
         batch_size: int = 32,
         use_sampler: bool = True,
         num_workers: int = 0,
-        pin_memory: bool = True,
+        pin_memory: bool = False,
         prefetch_factor: int | None = None,
         use_subset: bool = False,
     ):
