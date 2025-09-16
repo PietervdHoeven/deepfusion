@@ -94,21 +94,21 @@ class AutoEncoder3D(pl.LightningModule):
         return x_pred
     
     def training_step(self, batch, batch_idx):
-        x, mask = batch                                   # [B,1,128,128,128]
+        x, mask, patient_ids, session_ids = batch                                   # [B,1,128,128,128]
         x_hat = self(x) * mask                        # [B,1,128,128,128]  (zero background)
         loss = masked_mae(x_hat, x, mask)
         self.log("train_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        x, mask = batch
+        x, mask, patient_ids, session_ids = batch
         x_hat = self(x)
         loss = masked_mae(x_hat, x, mask)
         self.log("val_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
 
 
     def test_step(self, batch, batch_idx):
-        x, mask = batch
+        x, mask, patient_ids, session_ids = batch
 
         x_hat = self(x)
         zero_pred = torch.zeros_like(x_hat)

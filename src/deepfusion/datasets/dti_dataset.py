@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 from deepfusion.utils.labels import map_label
 
-class DTI_Dataset(Dataset):
+class DTIDataset(Dataset):
     """
     Minimal Dataset for DTI scalar maps (FA, MD, RD, AD) saved as a single .npz per session.
 

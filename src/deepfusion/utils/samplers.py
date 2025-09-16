@@ -1,11 +1,12 @@
 from pathlib import Path
 from torch.utils.data import Dataset
+from deepfusion.datasets.deepfusion_dataset import DeepFusionDataset
 from deepfusion.utils.labels import map_label
 from collections import Counter
 import pandas as pd
 import numpy as np
 
-def compute_CNN_sampler_weights(dataset):
+def compute_classifier_sampler_weights(dataset):
     """
     Returns weights aligned to dataset.files order using inverse class frequency.
     Assumes meta_data.csv has columns: ['patient','session','stage', <label_col>].
@@ -127,3 +128,17 @@ def compute_AE_sampler_weights(
 
     return weights
 
+def compute_patient_sampler_weights(dataset):
+    meta_df = dataset.metadata
+    meta_df = meta_df[meta_df["stage"] == "train"]
+
+    # Compute class counts
+    counts = Counter(meta_df["patient_id"])
+
+    weights = []
+    for file in dataset.files:
+        file_name = Path(file).name  # get only the filename
+        patient_id = file_name.split("_", 1)[0]  # 'sub-..'
+        weights.append(1.0 / counts[patient_id])
+
+    return weights

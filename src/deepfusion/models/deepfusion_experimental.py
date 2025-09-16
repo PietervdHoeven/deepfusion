@@ -1,6 +1,6 @@
 import pytorch_lightning as pl
 from deepfusion.models.encoders import ResEncoder, BasicEncoder
-from deepfusion.models.decoder import Decoder
+from deepfusion.models.decoders import Decoder
 from deepfusion.models.blocks import Embedder
 import torch.nn as nn
 import torch
@@ -53,11 +53,11 @@ class DeepFusion(pl.LightningModule):
 
     def forward(self, x, g, attn_mask):
         """
-        x: (B, L, D, H, W)
+        x: (B, L, C, D, H, W)
         g: (B, L, 4)
         attn_mask: (B, L)
         """
-        B, L, D, H, W = x.shape
+        B, L, C, D, H, W = x.shape
         x = x.unsqueeze(2)  # (B, L, 1, D, H, W) add channel dim
 
         # 1) sample a masked diffusion modelling mask (mdm_mask) and a visible to the model mask (vis_mask)

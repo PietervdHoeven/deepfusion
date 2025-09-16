@@ -1,21 +1,25 @@
-# src/datamodules/dti_datamodule.py
-from typing import Optional
-import numpy as np
-import torch
-from torch.utils.data import DataLoader, Subset
+# src/deepfusion/datamodules/deepfusion_datamodule.py
 import pytorch_lightning as pl
-from deepfusion.datasets.dti_dataset import DTIDataset
-from deepfusion.utils.samplers import compute_CNN_sampler_weights
+from torch.utils.data import DataLoader
+from pathlib import Path
+from typing import Optional
+import torch
+import numpy as np
+from torch.utils.data import DataLoader, Subset
+from deepfusion.utils.samplers import compute_patient_sampler_weights, compute_classifier_sampler_weights
+from deepfusion.utils.collate import collate_fn
 
-class DTIDataModule(pl.LightningDataModule):
+from deepfusion.datasets.deepfusion_dataset import DeepFusionDataset
+
+class DeepFusionDataModule(pl.LightningDataModule):
     def __init__(
         self,
         data_dir: str = "data",
-        task: str = "tri_cdr",
+        task: str = "pretraining",
         batch_size: int = 32,
         use_sampler: bool = True,
         num_workers: int = 0,
-        pin_memory: bool = True,
+        pin_memory: bool = False,
         prefetch_factor: int | None = None,
         use_subset: bool = False,
     ):
@@ -29,6 +33,11 @@ class DTIDataModule(pl.LightningDataModule):
         self.prefetch_factor = prefetch_factor
         self.use_subset = use_subset
 
+        if self.task == "pretraining":
+            self.sampler_fn = compute_patient_sampler_weights
+        else:
+            self.sampler_fn = compute_classifier_sampler_weights
+
         self.train_dataset = None
         self.val_dataset = None
         self.test_dataset = None
@@ -36,8 +45,8 @@ class DTIDataModule(pl.LightningDataModule):
 
     def setup(self, stage: Optional[str] = None) -> None:
         if stage in (None, "fit", "validate"):
-            self.train_dataset = DTIDataset(data_dir=self.data_dir, stage="train", task=self.task)
-            self.val_dataset   = DTIDataset(data_dir=self.data_dir, stage="val",   task=self.task)
+            self.train_dataset = DeepFusionDataset(data_dir=self.data_dir, stage="train", task=self.task)
+            self.val_dataset = DeepFusionDataset(data_dir=self.data_dir, stage="val", task=self.task)
 
             # NOTE: This is fragile! Only use for quick testing and you are sure that meta_data.csv and files are a perfect match.
             if self.use_subset:
@@ -45,10 +54,16 @@ class DTIDataModule(pl.LightningDataModule):
                 self.train_dataset.files = self.train_dataset.dataset.files[:100]
                 self.train_dataset.data_dir = self.train_dataset.dataset.data_dir
                 self.train_dataset.task = self.train_dataset.dataset.task
+                self.train_dataset.metadata = self.train_dataset.dataset.metadata
+                self.val_dataset = Subset(self.val_dataset, np.arange(0, 20))      
+                self.val_dataset.files = self.val_dataset.dataset.files[:20]
+                self.val_dataset.data_dir = self.val_dataset.dataset.data_dir
+                self.val_dataset.task = self.val_dataset.dataset.task
+                self.val_dataset.metadata = self.val_dataset.dataset.metadata
 
 
             if self.use_sampler:
-                weights = compute_CNN_sampler_weights(self.train_dataset)
+                weights = self.sampler_fn(self.train_dataset)
                 self.train_sampler = torch.utils.data.WeightedRandomSampler(
                     weights=weights,
                     num_samples=len(weights),
@@ -58,7 +73,7 @@ class DTIDataModule(pl.LightningDataModule):
                 self.train_sampler = None
 
         if stage in (None, "test"):
-            self.test_dataset = DTIDataset(data_dir=self.data_dir, stage="test", task=self.task)
+            self.test_dataset = DeepFusionDataset(data_dir=self.data_dir, stage="test", task=self.task)
 
     def _dl(self, dataset, *, sampler=None, shuffle=False) -> DataLoader:
         # If sampler is provided, shuffle must be False.
@@ -68,11 +83,12 @@ class DTIDataModule(pl.LightningDataModule):
             dataset,
             batch_size=self.batch_size,
             sampler=sampler,
+            collate_fn=collate_fn,
             shuffle=shuffle,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             prefetch_factor=self.prefetch_factor,
-            persistent_workers=(self.num_workers > 0),
+            persistent_workers=(self.num_workers > 0)
         )
 
     def train_dataloader(self) -> DataLoader:
@@ -84,21 +100,3 @@ class DTIDataModule(pl.LightningDataModule):
 
     def test_dataloader(self) -> DataLoader:
         return self._dl(self.test_dataset, shuffle=False)
-    
-
-# test run
-
-# if __name__ == "__main__":
-#     dm = DTI_DataModule(data_dir="data", task="tri_cdr", batch_size=2, use_sampler=True, use_subset=False)
-#     dm.setup("fit")
-#     train_loader = dm.train_dataloader()
-#     val_loader = dm.val_dataloader()
-#     print(f"Train batches: {len(train_loader)}, Val batches: {len(val_loader)}")
-#     for batch in train_loader:
-#         x, y = batch
-#         print(f"x: {x.shape}, y: {y.shape}, y: {y}")
-#         break
-#     for batch in val_loader:
-#         x, y = batch
-#         print(f"x: {x.shape}, y: {y.shape}, y: {y}")
-#         break

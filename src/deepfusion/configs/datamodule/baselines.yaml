@@ -1,0 +1,10 @@
+# configs/datamodule/dti.yaml
+
+_target_: deepfusion.datamodules.dti_datamodule.DTIDataModule
+data_dir: data
+task: ${task.name}       # drives label mapping + metrics downstream
+batch_size: 24
+use_sampler: true
+num_workers: 2
+pin_memory: true
+use_subset: false        # set true for quick smoke tests

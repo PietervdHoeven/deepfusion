@@ -1,6 +1,6 @@
 # configs/datamodule/ae.yaml
 
-_target_: deepfusion.datamodules.ae_datamodule.AE_DataModule
+_target_: deepfusion.datamodules.ae_datamodule.AEDataModule
 data_dir: data
 batch_size: 8
 use_sampler: true

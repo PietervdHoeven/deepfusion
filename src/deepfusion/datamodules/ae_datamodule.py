@@ -4,9 +4,9 @@ import torch
 import numpy as np
 from typing import Optional
 from deepfusion.datasets.ae_dataset import AEDataset
-from deepfusion.utils.sampler import compute_AE_sampler_weights
+from deepfusion.utils.samplers import compute_AE_sampler_weights
 
-class AE_DataModule(pl.LightningDataModule):
+class AEDataModule(pl.LightningDataModule):
     def __init__(
         self,
         data_dir: str = "data",

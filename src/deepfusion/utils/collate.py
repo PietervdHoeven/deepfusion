@@ -1,17 +1,26 @@
 import torch
 
-def collate_sessions(batch):
-    # batch is a list of tuples: (X_i [L_i, D, H, W], G_i [L_i, 4])
-    # Compute max sequence length os we know how much to pad
+def collate_fn(batch):
+    """
+    batch: list of (X_i, G_i)
+      - X_i: [L_i, C, D, H, W]  (latent maps per volume)
+      - G_i: [L_i, 4]           (side info per volume)
+
+    Returns:
+      X: [B, L_max, C, D, H, W]
+      G: [B, L_max, 4]
+      attn_mask: [B, L_max] (bool)
+    """
+
     Ls = [x.shape[0] for x, _ in batch] # list of sequence lengths
     L_max = max(Ls) # max sequence length in the batch
 
     # Extract shapes
     B = len(batch)
-    D,H,W = batch[0][0].shape[-3:]
+    C, D, H, W = batch[0][0].shape[1:]
 
     # Prepare padded tensors
-    X = torch.zeros(B, L_max, D, H, W, dtype=batch[0][0].dtype)
+    X = torch.zeros(B, L_max, C, D, H, W, dtype=batch[0][0].dtype)
     G = torch.zeros(B, L_max, 4, dtype=batch[0][1].dtype)
     attn_mask = torch.zeros(B, L_max, dtype=torch.bool)  # False = ignore, True = pay attention
 

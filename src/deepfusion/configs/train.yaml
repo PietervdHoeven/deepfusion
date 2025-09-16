@@ -3,9 +3,9 @@
 # Modular training: swap task, model, and dataset
 defaults:
   - _self_
-  - task: recon               # override on CLI: task=bin_cdr / gender / handedness / age / tri_cdr
-  - model: AutoEncoder3D               # override on CLI: model=<another>
-  - datamodule: ae             # override on CLI: data=<another>
+  - task: pretraining               # override on CLI: task=bin_cdr / gender / handedness / age / tri_cdr
+  - model: DeepFusion               # override on CLI: model=<another>
+  - datamodule: deepfusion             # override on CLI: data=<another>
 
 seed: 42
 test: false
@@ -40,7 +40,7 @@ model: ${model.module}
 
 trainer:
   _target_: pytorch_lightning.Trainer
-  max_epochs: 100
+  max_epochs: 200
   accelerator: auto
   devices: 1
   log_every_n_steps: 10

@@ -42,9 +42,25 @@ class ResEncoder(nn.Module):
         z = self.pool(z)            # [B*V, C, 1,1,1]
         z = self.head(z).flatten(1) # [B*V, d_enc]
         return z
+    
 
+class ZMapCNNEncoder(nn.Module):
+    """
+    Input:  z ∈ [B, 256, 4, 4, 4]
+    Output: token ∈ [B, d_token]
+    """
+    def __init__(self, c_in: int = 256, d_token: int = 512):
+        super().__init__()
+        self.conv1 = nn.Conv3d(c_in, 384, kernel_size=3, stride=2, padding=1)
+        # 2 → 1
+        self.conv2 = nn.Conv3d(384, 512, kernel_size=3, stride=2, padding=1)
+        self.proj  = nn.Linear(512, d_token)
 
-# okay its time to setup the transformer. We'll hardcode layer dimensions for now. No need to gridsearch yet. We want the following architecture:
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        x = F.relu(self.conv1(z))          # [B,384,2,2,2]
+        x = F.relu(self.conv2(x))          # [B,512,1,1,1]
+        x = x.flatten(1)                    # [B,512]
+        token = self.proj(x)                # [B,d_token]
+        return token
 
-# encoder takes a series of 1x128x128x128 volumes. We might get multiple series per batch but for now we'll just focus on a batch_size=1. So we have an encoder that loops over all the volumes and encodes them
 
