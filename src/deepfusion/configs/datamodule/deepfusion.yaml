@@ -1,8 +1,0 @@
-_target_: deepfusion.datamodules.deepfusion_datamodule.DeepFusionDataModule
-data_dir: data
-task: ${task.name}       # drives label mapping + metrics downstream
-batch_size: 48
-use_sampler: true
-num_workers: 6
-pin_memory: false
-use_subset: false        # set true for quick smoke tests

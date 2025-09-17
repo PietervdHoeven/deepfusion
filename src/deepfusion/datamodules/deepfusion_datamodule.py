@@ -7,7 +7,7 @@ import torch
 import numpy as np
 from torch.utils.data import DataLoader, Subset
 from deepfusion.utils.samplers import compute_patient_sampler_weights, compute_classifier_sampler_weights
-from deepfusion.utils.collate import collate_fn
+from deepfusion.utils.collate import collate_selfsupervised, collate_finetune
 
 from deepfusion.datasets.deepfusion_dataset import DeepFusionDataset
 
@@ -35,8 +35,10 @@ class DeepFusionDataModule(pl.LightningDataModule):
 
         if self.task == "pretraining":
             self.sampler_fn = compute_patient_sampler_weights
+            self.collate_fn = collate_selfsupervised
         else:
             self.sampler_fn = compute_classifier_sampler_weights
+            self.collate_fn = collate_finetune
 
         self.train_dataset = None
         self.val_dataset = None
@@ -83,7 +85,7 @@ class DeepFusionDataModule(pl.LightningDataModule):
             dataset,
             batch_size=self.batch_size,
             sampler=sampler,
-            collate_fn=collate_fn,
+            collate_fn=self.collate_fn,
             shuffle=shuffle,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,

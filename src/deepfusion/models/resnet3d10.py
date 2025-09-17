@@ -28,7 +28,7 @@ class BasicBlock3D(nn.Module):
         out = self.relu(out)
         return out
 
-class ResNet3D_18(pl.LightningModule):
+class ResNet3D_10(pl.LightningModule):
     def __init__(self, task="tri_cdr", lr=1e-3, in_channels=4):
         super().__init__()
         self.task = task
@@ -41,7 +41,7 @@ class ResNet3D_18(pl.LightningModule):
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool3d(kernel_size=3, stride=2, padding=1)
 
-        # ResNet-18 layers
+        # ResNet-10 layers
         self.layer1 = self._make_layer(64, 1)
         self.layer2 = self._make_layer(128, 1, stride=2)
         self.layer3 = self._make_layer(256, 1, stride=2)

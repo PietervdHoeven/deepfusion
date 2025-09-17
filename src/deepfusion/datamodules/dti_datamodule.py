@@ -5,7 +5,7 @@ import torch
 from torch.utils.data import DataLoader, Subset
 import pytorch_lightning as pl
 from deepfusion.datasets.dti_dataset import DTIDataset
-from deepfusion.utils.samplers import compute_CNN_sampler_weights
+from deepfusion.utils.samplers import compute_classifier_sampler_weights
 
 class DTIDataModule(pl.LightningDataModule):
     def __init__(
@@ -48,7 +48,7 @@ class DTIDataModule(pl.LightningDataModule):
 
 
             if self.use_sampler:
-                weights = compute_CNN_sampler_weights(self.train_dataset)
+                weights = compute_classifier_sampler_weights(self.train_dataset)
                 self.train_sampler = torch.utils.data.WeightedRandomSampler(
                     weights=weights,
                     num_samples=len(weights),
