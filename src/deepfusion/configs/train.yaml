@@ -21,8 +21,8 @@ early_stopping:
   _target_: pytorch_lightning.callbacks.EarlyStopping
   monitor: ${task.monitor}     # e.g., val_auroc or val_mae
   mode: ${task.mode}           # "max" for AUROC, "min" for MAE
-  patience: 12                  # 12 epochs of no improvement allows for LRonPlateau to reduce LR e-3 -> e-4 -> e-5 -> e-6 with patience 4 each
-  min_delta: 0.001
+  patience: 20                  # 12 epochs of no improvement allows for LRonPlateau to reduce LR e-3 -> e-4 -> e-5 -> e-6 with patience 4 each
+  min_delta: 0.0005         # default = 0.001
 
 checkpoint:
   _target_: pytorch_lightning.callbacks.ModelCheckpoint

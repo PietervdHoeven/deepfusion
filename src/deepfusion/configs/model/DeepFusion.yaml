@@ -2,6 +2,7 @@
 
 _target_: deepfusion.models.deepfusion.DeepFusion
 mask_prob: 0.5
-lr: 1e-4
-weight_decay: 0.05
+lr: 0.5e-4
+weight_decay: 0.025
 betas: [0.9, 0.95]
+dropout: 0.05

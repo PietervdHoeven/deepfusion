@@ -3,8 +3,6 @@ import numpy as np
 import torch
 from tqdm import tqdm
 from pathlib import Path
-import io
-from PIL import Image
 
 def compute_testset_mean_image(test_root: Path) -> np.ndarray:
     """

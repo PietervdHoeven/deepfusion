@@ -4,7 +4,7 @@ import torch.nn as nn
 import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
-from torch.optim.lr_scheduler import SequentialLR, LinearLR, CosineAnnealingLR
+from torch.optim.lr_scheduler import SequentialLR, LinearLR, ReduceLROnPlateau
 
 class ZMapEncoder(nn.Module):
     def __init__(self, in_ch=256, grid=(4,4,4), out_dim=512):
@@ -29,23 +29,23 @@ class ZMapDecoder(nn.Module):
     def __init__(self, in_dim=512, out_ch=256, grid=(4,4,4)):
         super().__init__()
         self.proj = nn.Linear(in_dim, 512)
+        self.up1   = Upsample3D(512, 512, "learned")                       # 1->2
         self.conv1 = ConvBlock3D(512, 384, kernel_size=3, stride=1, padding=1)
-        self.up1   = Upsample3D(384, 384, "learned")                       # 1->2
-        self.conv2 = ConvBlock3D(384, 256, kernel_size=3, stride=1, padding=1)  # 2->2
-        self.up2   = Upsample3D(256, out_ch, "learned")                    # 2->4
+        self.up2   = Upsample3D(384, 384, "learned")                       # 2->4
+        self.conv2 = ConvBlock3D(384, out_ch, kernel_size=3, stride=1, padding=1)  # 2->2
 
     def forward(self, x):
         x = self.proj(x)                    # [B,512]
         x = x[:, :, None, None, None]       # [B,512,1,1,1]
-        x = self.conv1(x)                   # [B,384,1,1,1]
-        x = self.up1(x)                     # [B,384,2,2,2]
-        x = self.conv2(x)                   # [B,256,2,2,2]
-        x = self.up2(x)                     # [B,256,4,4,4]
+        x = self.up1(x)                     # [B,512,2,2,2]
+        x = self.conv1(x)                   # [B,384,2,2,2]
+        x = self.up2(x)                     # [B,384,4,4,4]
+        x = self.conv2(x)                   # [B,256,4,4,4]
         return x
     
 
 class Embedder(nn.Module):
-    def __init__(self, d_enc=256, d_model=384):
+    def __init__(self, d_enc=512, d_model=512):
         super().__init__()
         self.proj_z = nn.Linear(d_enc, d_model, bias=False)
         self.proj_g = nn.Linear(4,     d_model, bias=True)
@@ -78,12 +78,12 @@ class DeepFusion(pl.LightningModule):
             self,
             # model params
             in_ch: int = 256,
-            dim_model: int = 384,
-            num_head: int = 6,
-            dim_feedforward: int = 1536,
+            dim_model: int = 512,
+            num_head: int = 8,              # must divide dim_model
+            dim_feedforward: int = 2048,    # typically 2~4 * dim_model
             dropout: float = 0.1,
             activation: str = 'gelu',
-            num_layers: int = 6,
+            num_layers: int = 6,            # allows for deep models
             # training params
             mask_prob: float = 0.5,
             lr: float = 1e-4,
@@ -153,6 +153,31 @@ class DeepFusion(pl.LightningModule):
 
         return x_pred, x_true
     
+
+    def _ssl_loss(self, x_pred, x_true):
+        if x_pred is not None and x_true is not None:
+            return F.l1_loss(x_pred, x_true)
+        else:
+            return torch.tensor(0.0, device=x_pred.device, dtype=x_pred.dtype)
+        
+
+    @torch.no_grad()
+    def mae_zero_baseline(self, x, mdm_mask):
+        # guard empty mask to avoid NaN
+        if not mdm_mask.any():
+            return torch.zeros((), device=x.device)
+        return x[mdm_mask].abs().mean()
+
+    @torch.no_grad()
+    def mae_ae_floor(self, x, mdm_mask):
+        if not mdm_mask.any():
+            return torch.zeros((), device=x.device)
+        B, L, C, D, H, W = x.shape
+        z = self.encoder(x.view(B*L, C, D, H, W)).view(B, L, -1)
+        x_rec = self.decoder(z[mdm_mask])
+        return (x_rec - x[mdm_mask]).abs().mean()
+    
+
     def training_step(self, batch, batch_idx):
         x, g, attn_mask = batch # x: [B,L,C,D,H,W], g: [B,L,4], attn_mask: [B,L] bool
         mdm_mask = (torch.rand_like(attn_mask, dtype=torch.float) < self.hparams.mask_prob) & attn_mask   # Sample a mask based on mask_prob but only for valid tokens where attn_mask == 1
@@ -164,6 +189,7 @@ class DeepFusion(pl.LightningModule):
         self.log(f"train_loss", loss, prog_bar=True, on_step=True, on_epoch=True)
         return loss
     
+
     def validation_step(self, batch, batch_idx):
         x, g, attn_mask = batch
         gen = torch.Generator(device=attn_mask.device).manual_seed(0)  # fixed seed
@@ -173,6 +199,22 @@ class DeepFusion(pl.LightningModule):
         loss = self._ssl_loss(x_pred, x_true)
         self.log(f"val_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
 
+        # log baselines
+        mae_zero = self.mae_zero_baseline(x, mdm_mask)
+        mae_ae   = self.mae_ae_floor(x, mdm_mask)
+        self.log('val_mae_zero', mae_zero, prog_bar=True, on_step=False, on_epoch=True)
+        self.log('val_mae_ae',   mae_ae,   prog_bar=True, on_step=False, on_epoch=True)
+
+        # log learning rate
+        opt = self.optimizers()
+        lr = opt.param_groups[0]['lr']
+        self.log('lr', lr, prog_bar=True, on_step=True, on_epoch=False)
+
+        # log x mean and std
+        self.log('x_mean', x_true.mean(), prog_bar=False, on_step=False, on_epoch=True)
+        self.log('x_std',  x_true.std(), prog_bar=False, on_step=False, on_epoch=True)
+
+
     def test_step(self, batch, batch_idx):
         x, g, attn_mask = batch
         gen = torch.Generator(device=attn_mask.device).manual_seed(0)  # fixed seed
@@ -181,12 +223,7 @@ class DeepFusion(pl.LightningModule):
         x_pred, x_true = self(x, g, attn_mask, mdm_mask)
         loss = self._ssl_loss(x_pred, x_true)
         self.log(f"test_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
-
-    def _ssl_loss(self, x_pred, x_true):
-        if x_pred is not None and x_true is not None:
-            return F.l1_loss(x_pred, x_true)
-        else:
-            return torch.tensor(0.0, device=x_pred.device, dtype=x_pred.dtype)
+        
         
     def configure_optimizers(self):
         # split params into decay / no-decay (biases & norms)
@@ -208,20 +245,28 @@ class DeepFusion(pl.LightningModule):
             betas=(0.9, 0.95),
         )
 
-        total_steps = self.trainer.estimated_stepping_batches
-        warmup_steps = max(1, int(0.05 * total_steps))
-        decay_steps  = max(1, total_steps - warmup_steps)
+        # total_steps = self.trainer.estimated_stepping_batches
+        # warmup_steps = max(1, int(0.025 * total_steps))
+        # print(f"Total training steps: {total_steps}, warmup steps: {warmup_steps}")
+        #decay_steps  = max(1, total_steps - warmup_steps)
 
-        warmup = LinearLR(optimizer, start_factor=1e-3, end_factor=1.0, total_iters=warmup_steps)
-        cosine = CosineAnnealingLR(optimizer, T_max=decay_steps, eta_min=self.hparams.lr * 0.01)
+        # warmup = LinearLR(optimizer, start_factor=1e-3, end_factor=1.0, total_iters=warmup_steps)
+        plateau = ReduceLROnPlateau(
+            optimizer,
+            mode="min",
+            factor=0.5,
+            patience=5,
+            threshold=5e-4,
+            min_lr=1e-6
+        )
 
-        scheduler = SequentialLR(optimizer, schedulers=[warmup, cosine], milestones=[warmup_steps])
         return {
-            "optimizer": optimizer, 
+            "optimizer": optimizer,
             "lr_scheduler": {
-                "scheduler": scheduler, 
-                "interval": "step"
-            }
+                "scheduler": plateau,
+                "interval": "epoch",
+                "monitor": "val_loss",
+            },
         }
 
 
