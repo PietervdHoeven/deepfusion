@@ -22,14 +22,14 @@ early_stopping:
   monitor: ${task.monitor}     # e.g., val_auroc or val_mae
   mode: ${task.mode}           # "max" for AUROC, "min" for MAE
   patience: 6                  # 12 epochs of no improvement allows for LRonPlateau to reduce LR e-3 -> e-4 -> e-5 -> e-6 with patience 4 each
-  min_delta: 0.001         # default = 0.001
+  min_delta: 0.001            # default = 0.001
 
 checkpoint:
   _target_: pytorch_lightning.callbacks.ModelCheckpoint
   monitor: ${task.monitor}
   mode: ${task.mode}
   save_top_k: 1
-  filename: best-epoch:{epoch:02d}-val_loss:{val_loss:.4f}
+  filename: best-epoch:{epoch:02d}-val_loss:{val_mae:.4f}
   auto_insert_metric_name: false
 
 # DataModule selection comes entirely from the data group

@@ -4,7 +4,8 @@ from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 
 from pytorch_lightning import Trainer, seed_everything
-import pytorch_lightning as pl
+import torch
+torch.set_float32_matmul_precision("high")
 
 
 @hydra.main(version_base=None, config_path="../configs", config_name="train")

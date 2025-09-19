@@ -3,5 +3,5 @@ in_ch: 1
 out_ch: 1
 channels: [16, 32, 64, 128, 192, 384, 512]
 residual: true
-lr: 1e-3
+lr: 1e-4
 weight_decay: 1e-5

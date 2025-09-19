@@ -1,11 +1,11 @@
-from deepfusion.models.autoencoders import AutoEncoder3D
+from deepfusion.models.autoencoder import Autoencoder
 import pandas as pd
 import numpy as np
 import torch
 from tqdm import tqdm
 import os
 
-model = AutoEncoder3D.load_from_checkpoint(
+model = Autoencoder.load_from_checkpoint(
     "/home/spieterman/projects/deepfusion/logs/recon-AutoEncoder3D/train/version_20/checkpoints/best-epoch:66-val_loss:0.2663.ckpt"
 )
 manifest = pd.read_csv("data/deepfusion/volumes/manifest.csv")

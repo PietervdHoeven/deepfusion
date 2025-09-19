@@ -2,15 +2,15 @@ import torch
 import torch.nn as nn
 import pytorch_lightning as pl
 
-from deepfusion.utils.losses import masked_mae
-from deepfusion.utils.visualisation import plot_reconstructions
+from deepfusion.utils.losses import masked_l1, masked_l2, weighted_l1, weighted_l2
+from deepfusion.utils.visualisation import plot_recons
 
 def conv3x3x3(in_channels, out_channels, stride=1):
     return nn.Conv3d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
 
 def up3x3x3(in_channels, out_channels):
     return nn.Sequential(
-        nn.Upsample(scale_factor=2, mode='trilinear', align_corners=False),
+        nn.Upsample(scale_factor=2, mode='linear', align_corners=False),
         nn.Conv3d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
     )
 
@@ -22,7 +22,7 @@ def proj1x1x1(in_channels, out_channels, sample: str | None = None):
         )
     elif sample == "up":
         return nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='trilinear', align_corners=False),
+            nn.Upsample(scale_factor=2, mode='linear', align_corners=False),
             nn.Conv3d(in_channels, out_channels, kernel_size=1, stride=1, bias=False)
         )
     else:
@@ -84,6 +84,7 @@ class Encoder(nn.Module):
         self.layer4 = ConvBlock(channels[3], channels[4], residual=self.residual, sample="down")  # [B, C_4, 8, 8, 8]
         self.layer5 = ConvBlock(channels[4], channels[5], residual=self.residual, sample="down")  # [B, C_5, 4, 4, 4]
         self.layer6 = ConvBlock(channels[5], channels[6], residual=self.residual, sample="down")  # [B, C_6, 2, 2, 2]
+        self.dropout = nn.Dropout3d(p=0.1)
 
     def forward(self, x):
         x = self.gelu(self.norm_in(self.conv_in(x)))
@@ -93,6 +94,7 @@ class Encoder(nn.Module):
         x = self.layer4(x)
         x = self.layer5(x)
         x = self.layer6(x)
+        x = self.dropout(x)
         return x
 
 
@@ -156,22 +158,20 @@ class Autoencoder(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         x, mask, patient_ids, session_ids = batch
         x_hat = self(x)
-        train_loss = torch.nn.functional.l1_loss(x_hat, x)  # Standard L1 loss
-        train_mae = masked_mae(x_hat, x, mask)              # Masked MAE
-        self.log("train_loss", train_loss, prog_bar=True, on_step=False, on_epoch=True)
-        self.log("train_mae", train_mae, prog_bar=True, on_step=False, on_epoch=True)
-        return train_loss
+        train_mse = weighted_l2(x_hat, x, mask)  # Standard L2 loss
+        train_mae = weighted_l1(x_hat, x, mask)              # Masked MAE
+        self.log("train_mse", train_mse, prog_bar=True, on_step=False, on_epoch=True)
+        self.log("train_mae", train_mae, prog_bar=True, on_step=True, on_epoch=True)
+        self.log("lr", self.lr, prog_bar=True, on_step=False, on_epoch=True)
+        return train_mse
 
     def validation_step(self, batch, batch_idx):
         x, mask, patient_ids, session_ids = batch
         x_hat = self(x)
-        val_loss = torch.nn.functional.l1_loss(x_hat, x)  # Standard L1 loss
-        val_mae = masked_mae(x_hat, x, mask)              # Masked MAE
-        self.log("val_loss", val_loss, prog_bar=True, on_step=False, on_epoch=True)
-        self.log("val_mae", val_mae, prog_bar=True, on_step=False, on_epoch=True)
-
-    # def on_fit_end(self):
-    #     plot_reconstructions(self.trainer.datamodule.test_dataloader(), self)
+        val_mse = weighted_l2(x_hat, x, mask)  # Standard L2 loss with weighted mask
+        val_mae = weighted_l1(x_hat, x, mask)              # Masked MAE
+        self.log("val_mse", val_mse, prog_bar=True, on_step=False, on_epoch=True)
+        self.log("val_mae", val_mae, prog_bar=True, on_step=True, on_epoch=True)
 
     def configure_optimizers(self):
         # split params into decay / no-decay
@@ -202,7 +202,7 @@ class Autoencoder(pl.LightningModule):
             "optimizer": optimizer,
             "lr_scheduler": {
                 "scheduler": lr_scheduler,
-                "monitor": "val_loss",
+                "monitor": "val_mse",
                 "interval": "epoch",
                 "frequency": 1,
             },
