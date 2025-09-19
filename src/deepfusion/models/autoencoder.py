@@ -10,7 +10,7 @@ def conv3x3x3(in_channels, out_channels, stride=1):
 
 def up3x3x3(in_channels, out_channels):
     return nn.Sequential(
-        nn.Upsample(scale_factor=2, mode='linear', align_corners=False),
+        nn.Upsample(scale_factor=2, mode='trilinear', align_corners=False),
         nn.Conv3d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
     )
 
@@ -22,7 +22,7 @@ def proj1x1x1(in_channels, out_channels, sample: str | None = None):
         )
     elif sample == "up":
         return nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='linear', align_corners=False),
+            nn.Upsample(scale_factor=2, mode='trilinear', align_corners=False),
             nn.Conv3d(in_channels, out_channels, kernel_size=1, stride=1, bias=False)
         )
     else:
@@ -161,7 +161,7 @@ class Autoencoder(pl.LightningModule):
         train_mse = weighted_l2(x_hat, x, mask)  # Standard L2 loss
         train_mae = weighted_l1(x_hat, x, mask)              # Masked MAE
         self.log("train_mse", train_mse, prog_bar=True, on_step=False, on_epoch=True)
-        self.log("train_mae", train_mae, prog_bar=True, on_step=True, on_epoch=True)
+        self.log("train_mae", train_mae, prog_bar=True, on_step=False, on_epoch=True)
         self.log("lr", self.lr, prog_bar=True, on_step=False, on_epoch=True)
         return train_mse
 
@@ -171,7 +171,7 @@ class Autoencoder(pl.LightningModule):
         val_mse = weighted_l2(x_hat, x, mask)  # Standard L2 loss with weighted mask
         val_mae = weighted_l1(x_hat, x, mask)              # Masked MAE
         self.log("val_mse", val_mse, prog_bar=True, on_step=False, on_epoch=True)
-        self.log("val_mae", val_mae, prog_bar=True, on_step=True, on_epoch=True)
+        self.log("val_mae", val_mae, prog_bar=True, on_step=False, on_epoch=True)
 
     def configure_optimizers(self):
         # split params into decay / no-decay

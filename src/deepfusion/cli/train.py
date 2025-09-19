@@ -4,8 +4,9 @@ from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 
 from pytorch_lightning import Trainer, seed_everything
+from pytorch_lightning.profilers import AdvancedProfiler
 import torch
-torch.set_float32_matmul_precision("high")
+# torch.set_float32_matmul_precision("medium")
 
 
 @hydra.main(version_base=None, config_path="../configs", config_name="train")
@@ -35,12 +36,13 @@ def main(cfg: DictConfig) -> None:
     early_stopping = instantiate(cfg.early_stopping)        # EarlyStopping
     checkpoint_cb = instantiate(cfg.checkpoint)             # ModelCheckpoint
     callbacks = [early_stopping, checkpoint_cb]
+    # profiler = AdvancedProfiler(dirpath="profiling", filename="train_profiler.txt")
 
     datamodule = instantiate(cfg.datamodule)                # LightningDataModule
     model = instantiate(cfg.model)                          # LightningModule
 
     # Single Trainer instantiation from config
-    trainer: Trainer = instantiate(cfg.trainer, logger=logger, callbacks=callbacks)
+    trainer: Trainer = instantiate(cfg.trainer, logger=logger, callbacks=callbacks, profiler="simple")
 
     # Fit
     trainer.fit(model=model, datamodule=datamodule, ckpt_path=cfg.ckpt_path)
