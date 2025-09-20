@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 from deepfusion.utils.losses import masked_l1, masked_l2, weighted_l1, weighted_l2
 from deepfusion.utils.visualisation import plot_recons
+from deepfusion.utils.masking import patch_mask
 from torchmetrics import StructuralSimilarityIndexMeasure
 import os
 
@@ -95,6 +96,7 @@ class Autoencoder(pl.LightningModule):
         lr=1e-4,
         weight_decay=0,
         betas=(0.9, 0.999),
+        masked_pretraining=False,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -103,6 +105,7 @@ class Autoencoder(pl.LightningModule):
         self.lr = lr
         self.weight_decay = weight_decay
         self.betas = betas
+        self.masked_pretraining = masked_pretraining
         self.ssim = StructuralSimilarityIndexMeasure()
 
     def forward(self, x):
@@ -110,6 +113,8 @@ class Autoencoder(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, mask, patient_ids, session_ids = batch
+        if self.masked_pretraining:
+            x, patch_mask_tensor = patch_mask(x, mask_ratio=0.5, ps=8)
         x_hat = self(x)
         loss = self.loss_fn(x_hat, x, mask)
         self.log(f"train_loss", loss, prog_bar=True, on_step=False, on_epoch=True)

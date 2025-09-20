@@ -3,7 +3,7 @@ import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
 
 # swap these lines to test different modules
-from deepfusion.models.autoencoder import Autoencoder, AE2D, AE3D, AE4D, AE5D, AE6D, AE7D
+from deepfusion.models.autoencoder import Autoencoder, AE7D
 from deepfusion.datamodules.ae_datamodule import AEDataModule
 from deepfusion.utils.losses import weighted_l1, weighted_l2, masked_l1, masked_l2, weighted_charbonnier, masked_charbonnier
 from torch.nn import L1Loss, MSELoss
@@ -70,6 +70,7 @@ def main():
         max_epochs=-1,
         accumulate_grad_batches=8,  # simulate larger batch size
         gradient_clip_val=1.0,
+        fast_dev_run=True,       # set to True for debugging
     )
 
     # fit loop
