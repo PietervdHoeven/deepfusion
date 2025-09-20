@@ -1,6 +1,8 @@
 from pyexpat import model
 import numpy as np
 import torch
+import matplotlib
+matplotlib.use("Agg")   # non-interactive backend, no Tk involved
 import matplotlib.pyplot as plt
 import torch.nn as nn
 import yaml
