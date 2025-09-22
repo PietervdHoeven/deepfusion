@@ -117,7 +117,7 @@ class Autoencoder(pl.LightningModule):
             x, patch_mask_tensor = patch_mask(x, mask_ratio=0.5, ps=8)
         x_hat = self(x)
         loss = self.loss_fn(x_hat, x, mask)
-        self.log(f"train_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
+        self.log(f"train_loss", loss, prog_bar=True, on_step=True, on_epoch=True)
 
         if batch_idx == 0:
             save_dir = f"logs/{self.logger.name}/{self.logger.version}/plots"
@@ -175,7 +175,7 @@ class Autoencoder(pl.LightningModule):
             optimizer,
             mode="min",
             factor=0.1,
-            patience=5,
+            patience=3,
             min_lr=1e-6,
             threshold=0.001,
         )

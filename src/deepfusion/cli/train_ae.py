@@ -18,8 +18,8 @@ def main():
         data_dir="data",
         use_sampler=True,
         batch_size=1,
-        num_workers=4,
-        pin_memory=False,
+        num_workers=10,
+        pin_memory=True,
         prefetch_factor=2
     )
     # optional channels:
@@ -28,17 +28,16 @@ def main():
 
     model_params = {
         "in_channels": 1,
-        "channels": [32, 64, 96, 128, 160, 224, 320, 448],
+        "channels": [24, 32, 48, 64, 96, 160, 256, 384],
         "residual": True
-
     }
 
     backbone = AE7D(**model_params)
 
     learning_params = {
-        "mask": False,
+        "masked_pretraining": False,
         "loss_fn": weighted_charbonnier,
-        "lr": 1e-3,
+        "lr": 1e-4,
         "weight_decay": 1e-4,
         "betas": (0.9, 0.95),
     }
@@ -68,13 +67,14 @@ def main():
         enable_checkpointing=True,
         callbacks=[checkpoint_callback],
         max_epochs=-1,
-        accumulate_grad_batches=8,  # simulate larger batch size
+        accumulate_grad_batches=16,  # simulate larger batch size
         gradient_clip_val=1.0,
-        fast_dev_run=True,       # set to True for debugging
+        overfit_batches=0,        # for debugging, set to 0 or remove for full training
     )
 
     # fit loop
-    trainer.fit(model, datamodule=datamodule)
+    ckpt_path = "/home/spieterman/projects/deepfusion/logs/AutoEncoder/[24, 32, 48, 64, 96, 160, 256, 384]_True/best-checkpoint.ckpt"
+    trainer.fit(model, datamodule=datamodule, ckpt_path=ckpt_path)  # or "path/to/checkpoint.ckpt"
 
     # optional test after training
     # trainer.test(model, datamodule=datamodule)
