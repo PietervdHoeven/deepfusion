@@ -7,33 +7,6 @@ from deepfusion.utils.masking import patch_mask
 from torchmetrics import StructuralSimilarityIndexMeasure
 import os
 
-# def down3x3x3(in_channels, out_channels):
-#     nn.Sequential(
-#         nn.AvgPool3d(kernel_size=2, stride=2),
-#         nn.Conv3d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
-#     )
-
-# def up3x3x3(in_channels, out_channels):
-#     return nn.Sequential(
-#         nn.Upsample(scale_factor=2, mode='nearest'),
-#         nn.Conv3d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
-#     )
-
-# def proj1x1x1(in_channels, out_channels, sample: str | None = None):
-#     if sample == "down":
-#         return nn.Conv3d(in_channels, out_channels, kernel_size=1, stride=2, bias=False)
-#     elif sample == "up":
-#         return nn.ConvTranspose3d(in_channels, out_channels, kernel_size=1, stride=2, output_padding=1, bias=False)
-#     else:
-#         return nn.Conv3d(in_channels, out_channels, kernel_size=1, stride=1, bias=False)
-    
-# def conv3x3x3(in_channels, out_channels, sample: str | None = None):
-#     if sample == "down":
-#         return nn.Conv3d(in_channels, out_channels, kernel_size=2, stride=2)
-#     elif sample == "up":
-#         return nn.ConvTranspose3d(in_channels, out_channels, kernel_size=2, stride=2)
-#     else:
-#         return nn.Conv3d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
 
 def proj1x1x1(in_channels, out_channels, sample: str | None = None):
     if sample == "down":
@@ -65,14 +38,33 @@ def conv3x3x3(in_channels, out_channels, sample: str | None = None, bias=False):
     else:
         return nn.Conv3d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=bias)
 
+def dw_conv3x3x3(in_channels, out_channels, sample: str | None = None, bias=False):
+    if sample == "down":
+        return nn.Sequential(
+            nn.AvgPool3d(kernel_size=2, stride=2),
+            nn.Conv3d(in_channels, in_channels, kernel_size=3, stride=1, padding=1, groups=in_channels, bias=bias),
+            nn.Conv3d(in_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=bias)
+        )
+    elif sample == "up":
+        return nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='nearest'),
+            nn.Conv3d(in_channels, in_channels, kernel_size=3, stride=1, padding=1, groups=in_channels, bias=bias),
+            nn.Conv3d(in_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=bias)
+        )
+    else:
+        return nn.Sequential(
+            nn.Conv3d(in_channels, in_channels, kernel_size=3, stride=1, padding=1, groups=in_channels, bias=bias),
+            nn.Conv3d(in_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=bias)
+        )
+
 class ConvBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, sample: str | None = None, residual=True):
+    def __init__(self, in_channels, out_channels, sample: str | None = None, residual=True, depthwise=True):
         super().__init__()
         self.residual = residual
-        self.conv1 = conv3x3x3(in_channels, out_channels, sample=sample)
+        self.conv1 = dw_conv3x3x3(in_channels, out_channels, sample=sample) if depthwise else conv3x3x3(in_channels, out_channels, sample=sample)
         self.norm1 = nn.GroupNorm(8, out_channels)
         self.relu = nn.LeakyReLU(0.1)
-        self.conv2 = conv3x3x3(out_channels, out_channels)
+        self.conv2 = dw_conv3x3x3(out_channels, out_channels) if depthwise else conv3x3x3(out_channels, out_channels)
         self.norm2 = nn.GroupNorm(8, out_channels)
         if (sample != None or in_channels != out_channels) and residual:
             self.proj = proj1x1x1(in_channels, out_channels, sample=sample)
@@ -189,7 +181,7 @@ class Autoencoder(pl.LightningModule):
     
 
 class AE7D(nn.Module):  # 7 downsamples
-    def __init__(self, in_channels=1, channels=[32, 64, 128, 256, 512, 1024, 2048, 4096], residual=True):
+    def __init__(self, in_channels=1, channels=[32, 64, 128, 256, 512, 1024, 2048, 4096], residual=True, depthwise=False):
         super().__init__()
         self.initial_conv = nn.Sequential(
             conv3x3x3(in_channels, channels[0]),
@@ -197,23 +189,55 @@ class AE7D(nn.Module):  # 7 downsamples
             nn.LeakyReLU(0.1),
         )
         self.encoder = nn.Sequential(
-            ConvBlock(channels[0], channels[1], sample="down", residual=residual),
-            ConvBlock(channels[1], channels[2], sample="down", residual=residual),
-            ConvBlock(channels[2], channels[3], sample="down", residual=residual),
-            ConvBlock(channels[3], channels[4], sample="down", residual=residual),
-            ConvBlock(channels[4], channels[5], sample="down", residual=residual),
-            ConvBlock(channels[5], channels[6], sample="down", residual=residual),
-            ConvBlock(channels[6], channels[7], sample="down", residual=residual),
+            ConvBlock(channels[0], channels[1], sample="down", residual=residual, depthwise=depthwise),
+            ConvBlock(channels[1], channels[2], sample="down", residual=residual, depthwise=depthwise),
+            ConvBlock(channels[2], channels[3], sample="down", residual=residual, depthwise=depthwise),
+            ConvBlock(channels[3], channels[4], sample="down", residual=residual, depthwise=depthwise),
+            ConvBlock(channels[4], channels[5], sample="down", residual=residual, depthwise=depthwise),
+            ConvBlock(channels[5], channels[6], sample="down", residual=residual, depthwise=depthwise),
+            ConvBlock(channels[6], channels[7], sample="down", residual=residual, depthwise=depthwise),
         )
 
         self.decoder = nn.Sequential(
-            ConvBlock(channels[7], channels[6], sample="up", residual=residual),
-            ConvBlock(channels[6], channels[5], sample="up", residual=residual),
-            ConvBlock(channels[5], channels[4], sample="up", residual=residual),
-            ConvBlock(channels[4], channels[3], sample="up", residual=residual),
-            ConvBlock(channels[3], channels[2], sample="up", residual=residual),
-            ConvBlock(channels[2], channels[1], sample="up", residual=residual),
-            ConvBlock(channels[1], channels[0], sample="up", residual=residual),
+            ConvBlock(channels[7], channels[6], sample="up", residual=residual, depthwise=depthwise),
+            ConvBlock(channels[6], channels[5], sample="up", residual=residual, depthwise=depthwise),
+            ConvBlock(channels[5], channels[4], sample="up", residual=residual, depthwise=depthwise),
+            ConvBlock(channels[4], channels[3], sample="up", residual=residual, depthwise=depthwise),
+            ConvBlock(channels[3], channels[2], sample="up", residual=residual, depthwise=depthwise),
+            ConvBlock(channels[2], channels[1], sample="up", residual=residual, depthwise=depthwise),
+            ConvBlock(channels[1], channels[0], sample="up", residual=residual, depthwise=depthwise),
+        )
+
+        self.final_conv = conv3x3x3(channels[0], in_channels, bias=True)
+
+    def forward(self, x):
+        x = self.initial_conv(x)
+        x = self.encoder(x)
+        x = self.decoder(x)
+        return self.final_conv(x)
+    
+class AE5D(nn.Module):
+    def __init__(self, in_channels=1, channels=[32, 64, 128, 256, 512, 1024], residual=True, depthwise=True):
+        super().__init__()
+        self.initial_conv = nn.Sequential(
+            conv3x3x3(in_channels, channels[0]),
+            nn.GroupNorm(8, channels[0]),
+            nn.LeakyReLU(0.1),
+        )
+        self.encoder = nn.Sequential(
+            ConvBlock(channels[0], channels[1], sample="down", residual=residual, depthwise=depthwise),
+            ConvBlock(channels[1], channels[2], sample="down", residual=residual, depthwise=depthwise),
+            ConvBlock(channels[2], channels[3], sample="down", residual=residual, depthwise=depthwise),
+            ConvBlock(channels[3], channels[4], sample="down", residual=residual, depthwise=depthwise),
+            ConvBlock(channels[4], channels[5], sample="down", residual=residual, depthwise=depthwise),
+        )
+
+        self.decoder = nn.Sequential(
+            ConvBlock(channels[5], channels[4], sample="up", residual=residual, depthwise=depthwise),
+            ConvBlock(channels[4], channels[3], sample="up", residual=residual, depthwise=depthwise),
+            ConvBlock(channels[3], channels[2], sample="up", residual=residual, depthwise=depthwise),
+            ConvBlock(channels[2], channels[1], sample="up", residual=residual, depthwise=depthwise),
+            ConvBlock(channels[1], channels[0], sample="up", residual=residual, depthwise=depthwise),
         )
 
         self.final_conv = conv3x3x3(channels[0], in_channels, bias=True)

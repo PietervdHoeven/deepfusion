@@ -16,10 +16,16 @@ from sklearn.model_selection import StratifiedGroupKFold
 import matplotlib.pyplot as plt
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
+import multiprocessing as mp
 
 from dipy.io.gradients import read_bvals_bvecs # type: ignore
 from dipy.core.gradients import gradient_table # type: ignore
 from dipy.reconst.dti import TensorModel # type: ignore
+
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 
 
 def split_and_save(
@@ -111,7 +117,9 @@ def process_session(
         dwi_path: str,
         bval_path: str,
         bvec_path: str,
-        metadata: pd.DataFrame,
+        patient_id: str,
+        session_id: str,
+        stage: str,
         skip_dwi: bool = False,
         skip_dti: bool = True
 ):
@@ -120,21 +128,10 @@ def process_session(
     compute DTI maps from the same arrays, save NIfTIs.
     Places outputs under {root}/{split}/{patient_id}/{session_id}/...
     """
-    # Infer patient_id/session_id from filename (or pass them in explicitly if you prefer)
-    base = Path(dwi_path).with_suffix("").with_suffix("")  # strip .nii.gz
-    name = base.name
-
-    # Expect names like sub-XXXX_ses-YY_*; tweak to your convention
-    parts = name.split("_")
-    sub = next((p for p in parts if p.startswith("sub-")), None)
-    ses = next((p for p in parts if p.startswith("ses-")), None)
-    patient_id = sub
-    session_id = ses
-
-    # print(f"Processing {patient_id}, {session_id}")
-
-    row = metadata[(metadata["patient_id"] == patient_id) & (metadata["session_id"] == session_id)]
-    stage = row.iloc[0]["stage"]
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1"
+    os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
     dwi, bvals, bvecs, affine, header = load_session_data(dwi_path, bval_path, bvec_path)
 
@@ -178,7 +175,7 @@ def load_session_data(dwi_path: str, bval_path: str, bvec_path: str):
     affine : np.ndarray, shape (4, 4), float32
     header : nib.Nifti1Header
     """
-    dwi_img = nib.load(dwi_path)
+    dwi_img = nib.load(dwi_path, mmap=False)
     dwi = dwi_img.get_fdata(dtype=np.float32)           # (X,Y,Z,N)
     affine = dwi_img.affine.astype(np.float32)
     header = dwi_img.header.copy()
@@ -209,8 +206,8 @@ def normalise_dwi(dwi_data: np.ndarray, bvals: np.ndarray) -> np.ndarray:
         Brain mask, shape (X, Y, Z), bool.
     """
 
-    # 1) Identify all b0 volumes (b-value <= 0)
-    b0_indices  = np.where(bvals <= 50)[0]         # e.g. array([0, 10, 20])
+    # 1) Identify all b0 volumes (b-value == 0)
+    b0_indices  = np.where(bvals == 0)[0]         # e.g. array([0, 10, 20])
 
     # 2) Extract those b0 volumes and form a union-mask of nonzero voxels
     #    (handles slight mis-alignments: if any run has signal, we treat it as brain)
@@ -297,6 +294,11 @@ def plot_dti(out, z: int = 64):
     fig.savefig("dti.png")
 
 
+# wrapper that unpacks dicts
+def _runner(kwargs):
+    return process_session(**kwargs)
+
+
 
 def main():
     parser = argparse.ArgumentParser(description="Universal split generator for cleaned DWI dataset.")
@@ -329,8 +331,12 @@ def main():
     # Load metadata with splits
     metadata = pd.read_csv(args.metadata_csv)
 
+
     if not (args.skip_dwi and args.skip_dti):
-        with ProcessPoolExecutor(max_workers=args.num_workers) as executor:
+        mp_ctx = mp.get_context("spawn")  # or "forkserver"
+        # Python 3.12+ supports max_tasks_per_child to mitigate rare leaks
+        extra_kwargs = {"mp_context": mp_ctx, "max_tasks_per_child": 200}
+        with ProcessPoolExecutor(max_workers=args.num_workers, **extra_kwargs) as executor:
             # stores all the jobs i.e. 'Future' objects. Objects are used to query the status of the job
             futures = []
 
@@ -338,6 +344,7 @@ def main():
             for _, row in list(metadata.iterrows()):  # limit to first 100 for testing
                 patient_id = row["patient_id"]
                 session_id = row["session_id"]
+                stage = row["stage"]
 
                 # prepare all the arguments for the function
                 dwi_path = f"data/cleaned/{patient_id}/{session_id}/{patient_id}_{session_id}_dwi_allruns.nii.gz"
@@ -347,7 +354,7 @@ def main():
                 # submit the job to the pool
                 futures.append(
                     executor.submit(
-                        process_session, dwi_path, bval_path, bvec_path, metadata,
+                        process_session, dwi_path, bval_path, bvec_path, patient_id, session_id, stage,
                         skip_dwi=args.skip_dwi, skip_dti=args.skip_dti
                     )
                 )
