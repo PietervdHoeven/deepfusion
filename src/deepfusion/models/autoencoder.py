@@ -110,6 +110,8 @@ class Autoencoder(pl.LightningModule):
         x_hat = self(x)
         loss = self.loss_fn(x_hat, x, mask)
         self.log(f"train_loss", loss, prog_bar=True, on_step=True, on_epoch=True)
+        lr = self.trainer.optimizers[0].param_groups[0]['lr']
+        self.log("lr", lr, prog_bar=True, on_step=False, on_epoch=True)
 
         if batch_idx == 0:
             save_dir = f"logs/{self.logger.name}/{self.logger.version}/plots"
@@ -123,12 +125,10 @@ class Autoencoder(pl.LightningModule):
         loss = self.loss_fn(x_hat, x, mask)
         bg_mae = weighted_l1(x_hat, x, mask)
         m_mae = masked_l1(x_hat, x, mask)
-        lr = self.trainer.optimizers[0].param_groups[0]['lr']
 
         self.log("val_loss", loss, prog_bar=False, on_step=False, on_epoch=True)
         self.log("val_mae_bg", bg_mae, prog_bar=True, on_step=False, on_epoch=True)
         self.log("val_mae_m", m_mae, prog_bar=True, on_step=False, on_epoch=True)
-        self.log("lr", lr, prog_bar=False, on_step=False, on_epoch=True)
 
         if batch_idx == 0:
             save_dir = f"logs/{self.logger.name}/{self.logger.version}/plots"
