@@ -22,6 +22,7 @@ class AEDataset(Dataset):
         self.stage = stage
         self.manifest = pd.read_csv(self.data_dir / "deepfusion/volumes" / "manifest.csv")
         self.manifest = self.manifest[self.manifest["stage"] == self.stage]
+        self._mm_cache = {}
 
     def __len__(self):
         return len(self.manifest)
@@ -30,21 +31,18 @@ class AEDataset(Dataset):
         # get the volume path and index
         row = self.manifest.iloc[idx]
         dwi_path = row["dwi_path"]
-        brain_mask_path = row["brain_mask_path"]
+        # brain_mask_path = row["brain_mask_path"]
         g = int(row["g_idx"])
-        patient_id = row["patient_id"]
-        session_id = row["session_id"]
 
         # memmap the session file and read one volume
-        dwi = np.load(dwi_path, mmap_mode="r")      # shape [N,D,H,W]
-        mask = np.load(brain_mask_path, mmap_mode="r")  # shape [D,H,W]
-        vol = dwi[g]                                # view [D,H,W], zero-copy on CPU
+        dwi = np.load(dwi_path, mmap_mode='r')      # shape [N,D,H,W]
+        vol = dwi[g]                       # view [D,H,W], zero-copy on CPU
 
-        x = torch.from_numpy(vol).unsqueeze(0).to(dtype=torch.float32)      # [1,D,H,W]
+        x = torch.from_numpy(vol).unsqueeze(0)      # [1,D,H,W]
 
-        mask = torch.from_numpy(mask).unsqueeze(0).to(dtype=torch.float32)  # [1,D,H,W]
+        # mask = torch.from_numpy(mask).unsqueeze(0)  # [1,D,H,W]
 
-        return x, mask, patient_id, session_id
+        return x
 
 
 # Test run
