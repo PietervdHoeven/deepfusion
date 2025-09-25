@@ -53,9 +53,10 @@ def main():
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
         monitor="val_mse",
         dirpath=logger.log_dir,
-        filename="best-checkpoint",
+        filename="epoch{epoch:02d}-val_loss{val_mse:.4f}-checkpoint",
         save_top_k=3,
         mode="min",
+        save_last=True,
     )
 
     early_stopping_callback = pl.callbacks.EarlyStopping(
@@ -82,7 +83,7 @@ def main():
     )
 
     # fit loop
-    ckpt_path = "/home/spieterman/projects/deepfusion/logs/AutoEncoder/ch-[32, 64, 128, 256, 384, 512]_res-True_dw-True_mask-False_loss-MSELoss/best-checkpoint.ckpt"
+    ckpt_path = "/home/spieterman/projects/deepfusion/logs/AutoEncoder/ch-[32, 64, 128, 256, 384, 512]_res-True_dw-True_mask-False_loss-MSELoss/last.ckpt"
     # ckpt_path = None
     trainer.fit(model, datamodule=datamodule, ckpt_path=ckpt_path)  # or "path/to/checkpoint.ckpt"
 

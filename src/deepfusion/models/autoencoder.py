@@ -103,10 +103,47 @@ class ConvBlock(nn.Module):
         y = self.relu(y)
         return y
 
+    
+class AE5D(nn.Module):
+    def __init__(self, in_channels=1, channels=[32, 64, 128, 256, 384, 512], residual=True):
+        super().__init__()
+
+        self.stem = nn.Sequential(
+            nn.Conv3d(in_channels, channels[0], kernel_size=3, stride=1, padding=1, bias=False),
+            nn.GroupNorm(8, channels[0]),
+            nn.LeakyReLU(0.1),
+        )
+
+        self.encoder = nn.Sequential(
+            ConvBlock(channels[0], channels[1], sample="down", residual=residual, type="normal"),
+            ConvBlock(channels[1], channels[2], sample="down", residual=residual, type="normal"),
+            ConvBlock(channels[2], channels[3], sample="down", residual=residual, type="normal"),
+            ConvBlock(channels[3], channels[4], sample="down", residual=residual, type="depthwise"),
+            ConvBlock(channels[4], channels[5], sample="down", residual=residual, type="depthwise"),
+        )
+
+        self.decoder = nn.Sequential(
+            ConvBlock(channels[5], channels[4], sample="up", residual=residual, type="depthwise"),
+            ConvBlock(channels[4], channels[3], sample="up", residual=residual, type="depthwise"),
+            ConvBlock(channels[3], channels[2], sample="up", residual=residual, type="normal"),
+            ConvBlock(channels[2], channels[1], sample="up", residual=residual, type="normal"),
+            ConvBlock(channels[1], channels[0], sample="up", residual=residual, type="normal"),
+        )
+
+        self.head = nn.Conv3d(channels[0], 1, kernel_size=1, stride=1, padding=0, bias=True)
+
+
+    def forward(self, x):
+        x = self.stem(x)
+        x = self.encoder(x)
+        x = self.decoder(x)
+        return self.head(x)
+    
+
 class Autoencoder(pl.LightningModule):
     def __init__(
         self,
-        model,
+        model=AE5D(),
         loss_fn=masked_l1,
         lr=1e-4,
         weight_decay=0,
@@ -202,75 +239,3 @@ class Autoencoder(pl.LightningModule):
         }
         return {"optimizer": optimizer, "lr_scheduler": scheduler}
     
-
-class AE7D(nn.Module):  # 7 downsamples
-    def __init__(self, in_channels=1, channels=[32, 64, 128, 256, 512, 1024, 2048, 4096], residual=True, depthwise=False):
-        super().__init__()
-        self.initial_conv = nn.Sequential(
-            dw_conv3x3x3(in_channels, channels[0]),
-            nn.GroupNorm(8, channels[0]),
-            nn.LeakyReLU(0.1),
-        )
-        self.encoder = nn.Sequential(
-            ConvBlock(in_channels, channels[0], sample="down", residual=residual, depthwise=depthwise),
-            ConvBlock(channels[0], channels[1], sample="down", residual=residual, depthwise=depthwise),
-            ConvBlock(channels[1], channels[2], sample="down", residual=residual, depthwise=depthwise),
-            ConvBlock(channels[2], channels[3], sample="down", residual=residual, depthwise=depthwise),
-            ConvBlock(channels[3], channels[4], sample="down", residual=residual, depthwise=depthwise),
-            ConvBlock(channels[4], channels[5], sample="down", residual=residual, depthwise=depthwise),
-            ConvBlock(channels[5], channels[6], sample="down", residual=residual, depthwise=depthwise),
-            ConvBlock(channels[6], channels[7], sample="down", residual=residual, depthwise=depthwise),
-        )
-
-        self.decoder = nn.Sequential(
-            ConvBlock(channels[7], channels[6], sample="up", residual=residual, depthwise=depthwise),
-            ConvBlock(channels[6], channels[5], sample="up", residual=residual, depthwise=depthwise),
-            ConvBlock(channels[5], channels[4], sample="up", residual=residual, depthwise=depthwise),
-            ConvBlock(channels[4], channels[3], sample="up", residual=residual, depthwise=depthwise),
-            ConvBlock(channels[3], channels[2], sample="up", residual=residual, depthwise=depthwise),
-            ConvBlock(channels[2], channels[1], sample="up", residual=residual, depthwise=depthwise),
-            ConvBlock(channels[1], channels[0], sample="up", residual=residual, depthwise=depthwise),
-        )
-
-        self.final_conv = dw_conv3x3x3(channels[0], in_channels, bias=True)
-
-    def forward(self, x):
-        x = self.initial_conv(x)
-        x = self.encoder(x)
-        x = self.decoder(x)
-        return self.final_conv(x)
-    
-class AE5D(nn.Module):
-    def __init__(self, in_channels=1, channels=[16, 32, 64, 128, 256, 384], residual=True, depthwise=False):
-        super().__init__()
-
-        self.stem = nn.Sequential(
-            nn.Conv3d(in_channels, channels[0], kernel_size=3, stride=1, padding=1, bias=False),
-            nn.GroupNorm(8, channels[0]),
-            nn.LeakyReLU(0.1),
-        )
-
-        self.encoder = nn.Sequential(
-            ConvBlock(channels[0], channels[1], sample="down", residual=residual, type="normal"),
-            ConvBlock(channels[1], channels[2], sample="down", residual=residual, type="normal"),
-            ConvBlock(channels[2], channels[3], sample="down", residual=residual, type="normal"),
-            ConvBlock(channels[3], channels[4], sample="down", residual=residual, type="depthwise"),
-            ConvBlock(channels[4], channels[5], sample="down", residual=residual, type="depthwise"),
-        )
-
-        self.decoder = nn.Sequential(
-            ConvBlock(channels[5], channels[4], sample="up", residual=residual, type="depthwise"),
-            ConvBlock(channels[4], channels[3], sample="up", residual=residual, type="depthwise"),
-            ConvBlock(channels[3], channels[2], sample="up", residual=residual, type="normal"),
-            ConvBlock(channels[2], channels[1], sample="up", residual=residual, type="normal"),
-            ConvBlock(channels[1], channels[0], sample="up", residual=residual, type="normal"),
-        )
-
-        self.head = nn.Conv3d(channels[0], 1, kernel_size=1, stride=1, padding=0, bias=True)
-
-
-    def forward(self, x):
-        x = self.stem(x)
-        x = self.encoder(x)
-        x = self.decoder(x)
-        return self.head(x)

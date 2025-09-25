@@ -1,3 +1,4 @@
+from typing import List, Tuple, Union
 import torch
 
 def collate_selfsupervised(batch):
@@ -68,3 +69,68 @@ def collate_finetune(batch):
         y[b] = label
 
     return X, G, attn_mask, y
+
+
+def collate_deepfusion_pretrain(
+    batch: List[Union[Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]],
+    mask_ratio: float = 0.3,
+):
+    """
+    Batch items:
+      x: (Q_i, C, 3, 4, 3)
+      g: (Q_i, 4)
+      [y: ...]  # optional for downstream task, ignored here
+
+    Returns:
+      X:  (B, Q_max, S=36, C)  float32
+      G:  (B, Q_max, 4)        float32
+      dir_mask:            (B, Q_max) bool, True = masked directions for MLM loss
+      seq_key_padding_mask:(B, Q_max) bool, True = PAD positions
+      [y_batch if present]
+    """
+    B = len(batch)
+    has_labels = (len(batch[0]) == 3)
+
+    # 1) find maximum Q in this batch
+    Qs = [item[0].shape[0] for item in batch]
+    Q_max = max(Qs)
+
+    # 2) shapes
+    _, C, D, H, W = batch[0][0].shape
+    assert (D, H, W) == (3, 4, 3), "Expected (3,4,3) spatial shape"
+    S = D * H * W  # 36
+
+    # 3) allocate padded tensors
+    X = torch.zeros(B, Q_max, S, C, dtype=torch.float32)   # (B,Q,S,C)
+    G = torch.zeros(B, Q_max, 4,   dtype=torch.float32)    # (B,Q,4)
+    seq_key_padding_mask = torch.ones(B, Q_max, dtype=torch.bool)  # True = PAD
+    dir_mask = torch.zeros(B, Q_max, dtype=torch.bool)             # True = MLM mask
+    Ys = []  # optional labels
+
+    for b, item in enumerate(batch):
+        if has_labels:
+            x, g, y = item
+            Ys.append(y)
+        else:
+            x, g = item
+
+        Qi = x.shape[0]
+
+        # ---- reshape x: (Q_i, C, 3,4,3) -> (Q_i, S=36, C) ----
+        xi = x.view(Qi, C, S).permute(0, 2, 1).contiguous()
+
+        # copy into padded batch
+        X[b, :Qi] = xi
+        G[b, :Qi] = g
+        seq_key_padding_mask[b, :Qi] = False  # False = real token, True = PAD
+
+        # build direction mask (random MLM on real tokens only)
+        num_mask = max(1, int(mask_ratio * Qi))
+        mask_idx = torch.randperm(Qi)[:num_mask]
+        dir_mask[b, mask_idx] = True
+
+    if has_labels:
+        Y = torch.stack(Ys, dim=0)
+        return X, G, dir_mask, seq_key_padding_mask, Y
+    else:
+        return X, G, dir_mask, seq_key_padding_mask

@@ -13,18 +13,18 @@ class DeepFusionDataset(Dataset):
     - Reads meta_data.csv for session metadata.
     - Filters by stage (train/val/test).
     - Loads .npy files:
-        latent maps: {data_dir}/deepfusion/latent-maps/{stage}/{patient_id}/{session_id}/{patient_id}_{session_id}_latent-maps.npy
-        gradients:   {data_dir}/deepfusion/latent-maps/{stage}/{patient_id}/{session_id}/{patient_id}_{session_id}_grads.npy
-    - Returns (X, G) as torch.float32, and label if task != "mdm".
+        latent maps: {data_dir}/deepfusion/latents/{stage}/{patient_id}/{session_id}/{patient_id}_{session_id}_latent-maps.npy
+        gradients:   {data_dir}/deepfusion/latents/{stage}/{patient_id}/{session_id}/{patient_id}_{session_id}_grads.npy
+    - Returns (X, G) as torch.float32, and label if task != "pretraining".
     """
 
-    def __init__(self, data_dir: str, stage: str = "data", task: str = "mdm"):
+    def __init__(self, data_dir: str = "data", stage: str = "train", task: str = "pretraining"):
         self.data_dir = Path(data_dir)
         self.stage = stage
         self.task = task
         self.metadata = pd.read_csv(self.data_dir / "meta_data.csv")
         self.files = sorted(
-            (self.data_dir / "deepfusion" / "latent-maps" / self.stage).glob("**/*_latent-maps.npy")
+            (self.data_dir / "deepfusion" / "latents" / self.stage).glob("**/*_latent-maps.npy")
         )
         if self.task != "pretraining":
             # Precompute label mapping for fast lookup
@@ -43,9 +43,9 @@ class DeepFusionDataset(Dataset):
         patient_id, session_id = parts[0], parts[1]
 
         # Load latent maps and gradients
-        x = np.load(latent_path)  # shape: (L, C, D, H, W)
+        x = np.load(latent_path)  # shape: (Q, C, D, H, W)
         grad_path = latent_path.parent / f"{patient_id}_{session_id}_grads.npy"
-        g = np.load(grad_path)    # shape: (L, 4)
+        g = np.load(grad_path)    # shape: (Q, 4)
 
         if self.task != "pretraining":
             # Fast label lookup
@@ -58,8 +58,11 @@ class DeepFusionDataset(Dataset):
 
         return torch.from_numpy(x).float(), torch.from_numpy(g).float()
     
-# if __name__ == "__main__":
-#     dataset = DeepFusionDataset(data_dir="data", stage="train")
-#     print(f"Dataset size: {len(dataset)}")
-#     x, g = dataset[0]
-#     print(f"x: {x.shape}, g: {g.shape}")
+if __name__ == "__main__":
+    dataset = DeepFusionDataset(data_dir="data", stage="train")
+    print(f"Dataset size: {len(dataset)}")
+    x, g = dataset[0]
+    print(f"x: {x.shape}, g: {g.shape}")
+    for i in range(10):
+        x, g = dataset[i]
+        print(f"mean: {x.mean().item():.4f}, std: {x.std().item():.4f}")

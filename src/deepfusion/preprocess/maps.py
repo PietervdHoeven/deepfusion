@@ -6,9 +6,17 @@ from tqdm import tqdm
 import os
 
 model = Autoencoder.load_from_checkpoint(
-    "/home/spieterman/projects/deepfusion/logs/recon-AutoEncoder3D/train/version_20/checkpoints/best-epoch:66-val_loss:0.2663.ckpt"
+    "/home/spieterman/projects/deepfusion/checkpoints/Autoencoder.ckpt"
 )
+print(model)
 manifest = pd.read_csv("data/deepfusion/volumes/manifest.csv")
+
+def forward(model, x):
+    model.eval()
+    with torch.no_grad():
+        x = model.model.stem(x)
+        z = model.model.encoder(x)
+    return z
 
 for group_keys, group_df in tqdm(manifest.groupby(["patient_id", "session_id"])):
     # group info
@@ -36,10 +44,9 @@ for group_keys, group_df in tqdm(manifest.groupby(["patient_id", "session_id"]))
 
         x = torch.from_numpy(dwi_batch).unsqueeze(1).to(dtype=torch.float32).cuda()  # [B,1,D,H,W]
 
-        with torch.no_grad():
-            z_batch = model.encoder(x)  # [B,1,D,H,W] (bottleneck maps)
+        z_batch = forward(model, x)  # [B,1,D,H,W] (bottleneck maps)
 
-        z_arr = z_batch.squeeze(1).cpu().numpy().astype(np.float16)  # [B,D,H,W]
+        z_arr = z_batch.squeeze(1).cpu().numpy()  # [B,D,H,W]
         z_list.append(z_arr)
 
     z_all = np.concatenate(z_list, axis=0)  # shape [N,D,H,W]
