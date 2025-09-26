@@ -102,10 +102,11 @@ class ConvBlock(nn.Module):
             y += x
         y = self.relu(y)
         return y
-
     
+
+
 class AE5D(nn.Module):
-    def __init__(self, in_channels=1, channels=[32, 64, 128, 256, 384, 512], residual=True):
+    def __init__(self, in_channels=1, channels=[16, 32, 64, 128, 256, 384], residual=True):
         super().__init__()
 
         self.stem = nn.Sequential(
@@ -138,7 +139,8 @@ class AE5D(nn.Module):
         x = self.encoder(x)
         x = self.decoder(x)
         return self.head(x)
-    
+
+
 
 class Autoencoder(pl.LightningModule):
     def __init__(
