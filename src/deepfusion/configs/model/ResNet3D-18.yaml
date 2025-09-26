@@ -1,5 +1,0 @@
-# configs/model/ResNet3D-18.yaml
-
-_target_: deepfusion.models.resnet3d18.ResNet3D_18
-task: ${task.name}
-lr: 1e-4

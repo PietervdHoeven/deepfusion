@@ -1,28 +1,27 @@
 import torch
 from torch.utils.data import DataLoader
 
-from deepfusion.datasets.deepfusion_dataset import DeepFusionDataset
-from deepfusion.utils.collate import collate_deepfusion_pretrain
+from deepfusion.datasets import AutoencoderDataset
+from deepfusion.utils.collate import collate_transformer
 from deepfusion.models.transformer import AxialMaskedLatentModel
 from deepfusion.utils.losses import masked_recon_loss
-# from your module: AxialMaskedLatentModel, masked_recon_loss
 
 train_loader = DataLoader(
-    dataset=DeepFusionDataset(stage="train", task="pretraining"),
+    dataset=AutoencoderDataset(stage="train", task="pretraining"),
     batch_size=4,              # tune for VRAM; 4–8 is typical on 8GB with d~256, N~4–6
     shuffle=True,
     num_workers=12,
     pin_memory=True,
-    collate_fn=lambda b: collate_deepfusion_pretrain(b, mask_ratio=0.35),
+    collate_fn=lambda b: collate_transformer(b, mask_ratio=0.35),
 )
 
 val_loader = DataLoader(
-    dataset=DeepFusionDataset(stage="val", task="pretraining"),
+    dataset=AutoencoderDataset(stage="val", task="pretraining"),
     batch_size=6,
     shuffle=False,
     num_workers=12,
     pin_memory=True,
-    collate_fn=lambda b: collate_deepfusion_pretrain(b, mask_ratio=0.35),
+    collate_fn=lambda b: collate_transformer(b, mask_ratio=0.35),
 )
 
 # Instantiate model for your shapes (C=384, S=36)

@@ -1,5 +1,0 @@
-# configs/model/3D_CNN.yaml
-
-_target_: deepfusion.models.3dcnn.Vanilla3DCNN
-task: ${task.name}
-lr: 1e-4

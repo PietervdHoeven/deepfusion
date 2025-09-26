@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import math
 from deepfusion.utils.losses import masked_recon_loss
 
+
 # ============================================================
 # Multi-Head Self-Attention (MSA) with dropout and padding mask
 # ============================================================
@@ -149,14 +150,14 @@ class AxialBlock(nn.Module):
 
         # Repeat the sequence padding mask over S (so it matches (B*S, Q))
         if seq_key_padding_mask is not None:
-            kpm = seq_key_padding_mask[:, None, :].expand(B, S, Q)  # (B,S,Q)
+            kpm = seq_key_padding_mask[:, None, :].expand(B, S, Q)  # (B,S,Q)   Insert S dim, repeat mask over S
             kpm = kpm.reshape(B * S, Q)                             # (B*S, Q)
         else:
             kpm = None
 
         z = self.msa_seq(x, key_padding_mask=kpm)   # (B*S, Q, d)
         x = self.ln2(x + z)                         # residual + LN
-        H = x.view(B, S, Q, d).permute(0, 2, 1, 3).contiguous()  # (B, Q, S, d)
+        H = x.view(B, S, Q, d).permute(0, 2, 1, 3).contiguous()  # (B, Q, S, d) swap back
 
         # ---- 3) Pointwise FFN with residual ----
         y = self.ffn(H)                             # (B, Q, S, d)
@@ -165,7 +166,7 @@ class AxialBlock(nn.Module):
 
 
 # ============================================================
-# Minimal End-to-End Axial Model (with dropout, no bias)
+# End-to-End Axial Model (with dropout, no bias)
 # ============================================================
 class AxialMaskedLatentModel(nn.Module):
     """
@@ -189,8 +190,6 @@ class AxialMaskedLatentModel(nn.Module):
 
         # 2(a) Input projection C -> d
         self.proj_in  = nn.Linear(C, d)  # W_in
-        # 4) Output projection d -> C
-        self.proj_out = nn.Linear(d, C)  # W_dec
 
         # 2(b) Learned spatial positional embeddings P_s for s=1..S
         self.spatial_pe = nn.Parameter(torch.zeros(S, d))
@@ -207,12 +206,15 @@ class AxialMaskedLatentModel(nn.Module):
         self.mask_token = nn.Parameter(torch.zeros(d))
         nn.init.normal_(self.mask_token, std=0.02)
 
-        # Axial blocks
+        # 3) Axial blocks
         self.blocks = nn.ModuleList([
             AxialBlock(d=d, H=H, ffn_mult=4, attn_dropout=attn_dropout,
                        proj_dropout=proj_dropout, ffn_dropout=ffn_dropout)
             for _ in range(N)
         ])
+
+        # 4) Output projection d -> C
+        self.proj_out = nn.Linear(d, C)  # W_dec
 
     def forward(
         self,
@@ -224,22 +226,22 @@ class AxialMaskedLatentModel(nn.Module):
         B, Q, S, C = X.shape
         assert S == self.S, f"expected S={self.S}, got {S}"
 
-        # ---- 2(a) Project channels C -> d ----
+        # ---- 1(a) Project channels C -> d ----
         H = self.proj_in(X)                                # (B, Q, S, d)
 
-        # ---- 2(b) Add spatial positional embeddings P_s ----
+        # ---- 1(b) Add spatial positional embeddings P_s ----
         H = H + self.spatial_pe.view(1, 1, S, self.d)      # (B, Q, S, d)
 
-        # ---- 2(c) Gradient embedding E_g(g_q) ----
+        # ---- 1(c) Gradient embedding E_g(g_q) ----
         G = self.grad_mlp(g)                                # (B, Q, d)
         H = H + G.unsqueeze(2)                               # broadcast over S -> (B, Q, S, d)
 
         # ---- Optional masking: replace whole directions with [MASK] ----
         if dir_mask is not None:
             # dir_mask (B,Q) -> (B,Q,S,d)
-            m = dir_mask.view(B, Q, 1, 1).expand(B, Q, S, 1)
-            mask_tok = self.mask_token.view(1, 1, 1, self.d).expand(B, Q, S, self.d)
-            H = torch.where(m, mask_tok, H)                 # (B, Q, S, d)
+            m = dir_mask.view(B, Q, 1, 1).expand(B, Q, S, 1)                            # Mask is fixed for qs but broadcast over S and d
+            mask_tok = self.mask_token.view(1, 1, 1, self.d).expand(B, Q, S, self.d)    # Expand mask token for all positions
+            H = torch.where(m, mask_tok, H)                 # (B, Q, S, d)                Replace H with [MASK] where masked
 
         # ---- Axial blocks (Spatial MSA -> Sequence MSA -> FFN) ----
         for blk in self.blocks:
@@ -249,45 +251,3 @@ class AxialMaskedLatentModel(nn.Module):
         X_hat = self.proj_out(H)                             # (B, Q, S, C)
         return X_hat
 
-
-
-# ===== Dummy forward pass =====
-B, Q, S, C = 2, 5, 36, 512
-
-# Random latent maps: (B, Q, S, C)
-X = torch.randn(B, Q, S, C)
-
-# Gradient info per direction: (B, Q, 4)   (e.g., [bval, bx, by, bz])
-g = torch.randn(B, Q, 4)
-
-# Mask two random directions for reconstruction loss
-dir_mask = torch.zeros(B, Q, dtype=torch.bool)
-dir_mask[0, 2] = True   # mask direction 2 in sample 0
-dir_mask[1, 4] = True   # mask direction 4 in sample 1
-
-# Key padding mask: pretend sample 1 only has Q=3 real directions, rest is PAD
-seq_key_padding_mask = torch.zeros(B, Q, dtype=torch.bool)
-seq_key_padding_mask[1, 3:] = True   # mark last 2 as PAD for sample 1
-
-# Instantiate the model
-model = AxialMaskedLatentModel(
-    C=512, d=128, H=4, S=S, N=2,   # smaller d for demo
-    attn_dropout=0.1, proj_dropout=0.1, ffn_dropout=0.1
-)
-
-# Forward pass
-X_hat = model(
-    X, g,
-    dir_mask=dir_mask,
-    seq_key_padding_mask=seq_key_padding_mask
-)
-
-print("Input X shape:    ", X.shape)      # (2, 5, 36, 512)
-print("Grad g shape:     ", g.shape)      # (2, 5, 4)
-print("Dir mask shape:   ", dir_mask.shape)  # (2, 5)
-print("Pad mask shape:   ", seq_key_padding_mask.shape)  # (2, 5)
-print("Output X_hat shape:", X_hat.shape)  # (2, 5, 36, 512)
-
-# Compute masked reconstruction loss
-loss = masked_recon_loss(X_hat, X, dir_mask)
-print("Masked recon loss:", loss.item())

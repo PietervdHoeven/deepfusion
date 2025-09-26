@@ -1,5 +1,0 @@
-# configs/task/bin_cdr.yaml
-
-name: bin_cdr
-monitor: val_auroc
-mode: max

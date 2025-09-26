@@ -1,6 +1,4 @@
 from pathlib import Path
-from torch.utils.data import Dataset
-from deepfusion.datasets.deepfusion_dataset import DeepFusionDataset
 from deepfusion.utils.labels import map_label
 from collections import Counter
 import pandas as pd
@@ -80,7 +78,7 @@ def bucketize_bvals(bvals: pd.Series) -> pd.Series:
     return pd.Series(out, index=bvals.index)
 
 
-def compute_AE_sampler_weights(
+def compute_qspace_sampler_weights(
         dataset,
         alpha: float = 0.5,  # shell tempering exponent     (Don't want to overfit on rare shells too much)
         beta:  float = 1.0,  # patient balancing exponent
@@ -127,6 +125,7 @@ def compute_AE_sampler_weights(
     weights = weights / weights.mean()  # normalize to mean=1
 
     return weights
+
 
 def compute_patient_sampler_weights(dataset):
     meta_df = dataset.metadata

@@ -1,3 +1,0 @@
-_target_: deepfusion.models.resnet3d10.ResNet3D_10
-task: ${task.name}
-lr: 1e-4

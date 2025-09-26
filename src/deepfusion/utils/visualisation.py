@@ -1,14 +1,7 @@
-from pyexpat import model
-import numpy as np
-import torch
+# src/utils/visualisation.py
 import matplotlib
 matplotlib.use("Agg")   # non-interactive backend, no Tk involved
 import matplotlib.pyplot as plt
-import torch.nn as nn
-import yaml
-
-# from deepfusion.datasets.ae_dataset import AEDataset
-# from deepfusion.models.autoencoders import AutoEncoder
 
 
 def plot_recons(x, x_pred, fname="reconstructions.png"):

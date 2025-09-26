@@ -1,5 +1,0 @@
-# configs/task/pretraining.yaml
-
-name: pretraining
-monitor: val_mae
-mode: min

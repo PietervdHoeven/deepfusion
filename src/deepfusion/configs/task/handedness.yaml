@@ -1,5 +1,0 @@
-# configs/task/handedness.yaml
-
-name: handedness
-monitor: val_auroc
-mode: max

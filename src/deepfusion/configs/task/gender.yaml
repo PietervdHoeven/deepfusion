@@ -1,5 +1,0 @@
-# configs/task/gender.yaml
-
-name: gender
-monitor: val_auroc
-mode: max
