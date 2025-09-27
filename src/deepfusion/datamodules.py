@@ -199,23 +199,22 @@ class TransformerDataModule(DataModule):
         self._collate_test = None
 
     def setup(self, stage: Optional[str] = None) -> None:
-        finetune = (self.task != "pretraining")
         # if you changed collate to allow 0 masks, we can just pass 0.0 for finetune
-        r_train = 0.0 if finetune else self.mask_ratio_train
-        r_val   = 0.0 if finetune else self.mask_ratio_val
-        r_test  = 0.0 if finetune else self.mask_ratio_test
+        r_train = 0.0 if self.task != "pretraining" else self.mask_ratio_train
+        r_val   = 0.0 if self.task != "pretraining" else self.mask_ratio_val
+        r_test  = 0.0 if self.task != "pretraining" else self.mask_ratio_test
 
         if stage in (None, "fit", "validate"):
             self.train_dataset = TransformerDataset(self.data_dir, stage="train", task=self.task)
             self.val_dataset   = TransformerDataset(self.data_dir, stage="val",   task=self.task)
 
             # downstream sampling by patient (plug your own as needed)
-            if self.use_sampler and finetune:
+            if self.use_sampler and self.task == "pretraining":
                 weights = compute_patient_sampler_weights(self.train_dataset)
                 self.train_sampler = torch.utils.data.WeightedRandomSampler(
                     weights=weights, num_samples=len(weights), replacement=True
                 )
-            elif self.use_sampler and not finetune:
+            elif self.use_sampler and self.task != "pretraining":
                 weights = compute_classifier_sampler_weights(self.train_dataset)
                 self.train_sampler = torch.utils.data.WeightedRandomSampler(
                     weights=weights, num_samples=len(weights), replacement=True
@@ -245,23 +244,3 @@ class TransformerDataModule(DataModule):
 
     def test_dataloader(self) -> DataLoader:
         return self._dl(self.test_dataset, shuffle=False, collate_fn=self._collate_test)
-
-
-# test run transformer
-
-if __name__ == "__main__":
-    dm = TransformerDataModule(data_dir="data", task="pretraining", batch_size=4, use_sampler=False, num_workers=4)
-    dm.setup("fit")
-    print(f"Train dataset size: {len(dm.train_dataset)}")
-    train_loader = dm.train_dataloader()
-    val_loader = dm.val_dataloader()
-    print(f"Train batches: {len(train_loader)}, Val batches: {len(val_loader)}")
-    for batch in train_loader:
-        x, g, dir_mask, pad_mask = batch
-        print(f"x: {x.shape}, g: {g.shape}, dir_mask: {dir_mask.shape}, pad_mask: {pad_mask.shape}")
-        break
-    for batch in val_loader:
-        x, g, dir_mask, pad_mask = batch
-        print(f"x: {x.shape}, g: {g.shape}, dir_mask: {dir_mask.shape}, pad_mask: {pad_mask.shape}")
-        break
-

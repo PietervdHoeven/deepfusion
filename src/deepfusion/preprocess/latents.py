@@ -1,22 +1,23 @@
-from deepfusion.models.autoencoder import Autoencoder
+from deepfusion.models.autoencoder import AE5D
+from deepfusion.models.wrappers import AutoencoderPretrainer
 import pandas as pd
 import numpy as np
 import torch
 from tqdm import tqdm
 import os
 
-model = Autoencoder.load_from_checkpoint(
-    "/home/spieterman/projects/deepfusion/checkpoints/Autoencoder.ckpt"
+model = AutoencoderPretrainer.load_from_checkpoint(
+    "/home/spieterman/projects/deepfusion/checkpoints/autoencoder/Autoencoder.ckpt"
 )
 print(model)
 manifest = pd.read_csv("data/deepfusion/volumes/manifest.csv")
 
-# def forward(model, x):
-#     model.eval()
-#     with torch.no_grad():
-#         x = model.model.stem(x)
-#         z = model.model.encoder(x)
-#     return z
+def forward(model, x):
+    model.eval()
+    with torch.no_grad():
+        x = model.model.stem(x)
+        z = model.model.encoder(x)
+    return z
 
 # for group_keys, group_df in tqdm(manifest.groupby(["patient_id", "session_id"])):
 #     # group info

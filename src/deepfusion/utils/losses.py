@@ -52,26 +52,14 @@ def weighted_charbonnier(pred, target, mask, w_fg=1.0, w_bg=0.01, eps=1e-3, eps_
 def masked_recon_loss(
     X_hat: torch.Tensor,       # (B, Q, S, C)
     X: torch.Tensor,           # (B, Q, S, C)
-    dir_mask: torch.Tensor,    # (B, Q) bool; True = masked (compute loss here)
-    lam_cos: float = 0.1
+    q_space_mask: torch.Tensor,    # (B, Q) bool; True = masked (compute loss here)
 ):
     B, Q, S, C = X.shape
     # Broadcast mask over S and C: (B,Q) -> (B,Q,S,C)
-    m = dir_mask.view(B, Q, 1, 1).expand(B, Q, S, C)   # True where masked
+    m = q_space_mask.view(B, Q, 1, 1).expand(B, Q, S, C)   # True where masked
 
     # MSE on masked tokens
     diff = (X_hat - X)[m]              # (num_masked * S * C,)
     mse  = (diff ** 2).mean()
 
-    # # Optional cosine alignment term
-    # xh = X_hat[m].view(-1, C)          # (..., C)
-    # xt = X[m].view(-1, C)
-    # if xh.numel() > 0:
-    #     xh_n = F.normalize(xh, dim=-1)
-    #     xt_n = F.normalize(xt, dim=-1)
-    #     cos = 1.0 - (xh_n * xt_n).sum(dim=-1)  # (...,)
-    #     cos = cos.mean()
-    # else:
-    #     cos = torch.tensor(0.0, device=X.device, dtype=X.dtype)
-
-    return mse# + lam_cos * cos
+    return mse

@@ -103,8 +103,8 @@ def collate_transformer(
     # 3) allocate padded tensors
     X = torch.zeros(B, Q_max, S, C, dtype=torch.float32)   # (B,Q,S,C)
     G = torch.zeros(B, Q_max, 4,   dtype=torch.float32)    # (B,Q,4)
-    seq_key_padding_mask = torch.ones(B, Q_max, dtype=torch.bool)  # True = PAD
-    dir_mask = torch.zeros(B, Q_max, dtype=torch.bool)             # True = MLM mask
+    padding_mask = torch.ones(B, Q_max, dtype=torch.bool)  # True = PAD
+    Q_mask = torch.zeros(B, Q_max, dtype=torch.bool)             # True = MLM mask
     Ys = []  # optional labels
 
     for b, item in enumerate(batch):
@@ -122,16 +122,16 @@ def collate_transformer(
         # copy into padded batch
         X[b, :Qi] = xi
         G[b, :Qi] = g
-        seq_key_padding_mask[b, :Qi] = False  # False = real token, True = PAD
+        padding_mask[b, :Qi] = False  # False = real token, True = PAD
 
-        # build direction mask (random MLM on real tokens only)
+        # build q-space mask (random MLM on real tokens only)
         if mask_ratio > 0:
             num_mask = max(1, int(mask_ratio * Qi))
             mask_idx = torch.randperm(Qi)[:num_mask]
-            dir_mask[b, mask_idx] = True
+            Q_mask[b, mask_idx] = True
 
     if has_labels:
         Y = torch.stack(Ys, dim=0)
-        return X, G, dir_mask, seq_key_padding_mask, Y
+        return (X, G, Q_mask, padding_mask), Y
     else:
-        return X, G, dir_mask, seq_key_padding_mask
+        return X, G, Q_mask, padding_mask

@@ -1,7 +1,7 @@
 # src/utils/labels.py
 MAPPERS = {
     "gender":     {"male": 0, "female": 1},
-    "handedness": {"right": 0, "left": 1},
+    "handedness": {"left": 0, "right": 1},
 
     # CDR variants
     "bin_cdr": {0.0: 0, 0.5: 1, 1.0: 1, 2.0: 1},

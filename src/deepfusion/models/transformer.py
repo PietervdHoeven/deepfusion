@@ -1,188 +1,42 @@
+from torch import nn
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import math
-from deepfusion.utils.losses import masked_recon_loss
 
+from deepfusion.models.blocks.attention import MSA, AxialBlock, AttentionPool
 
-# ============================================================
-# Multi-Head Self-Attention (MSA) with dropout and padding mask
-# ============================================================
-class MSA(nn.Module):
-    """
-    Multi-head self-attention operating on sequences of shape (N, L, d).
-
-    Math:
-      - Split model dim d across H heads: d_h = d / H
-      - Linear projections (shared, then reshaped into heads):
-          Q = X W_Q,  K = X W_K,  V = X W_V
-      - Scaled dot-product attention (per head):
-          scores = (Q K^T) / sqrt(d_h)                       # (N, H, L, L)
-          scores[pad_keys] = -inf                             # apply key padding mask
-          A = softmax(scores, dim=-1)                         # attention weights
-          O_head = A @ V                                      # (N, H, L, d_h)
-      - Merge heads + output projection:
-          O = concat_h(O_head) W_O                            # (N, L, d) -> (N, L, d)
-
-    Dropout:
-      - Attention dropout on A
-      - Projection dropout after output projection
-
-    Args:
-      d (int): model dimension
-      H (int): number of heads (d must be divisible by H)
-      attn_dropout (float): dropout on attention weights
-      proj_dropout (float): dropout after output projection
-    """
-    def __init__(self, d: int, H: int, attn_dropout: float = 0.0, proj_dropout: float = 0.0):
-        super().__init__()
-        assert d % H == 0, "d must be divisible by H"
-        self.d  = d
-        self.H  = H
-        self.dh = d // H  # per-head dimension d_h = d / H
-
-        # Q, K, V projections: (N,L,d) -> (N,L,d)
-        self.q_proj = nn.Linear(d, d, bias=True)
-        self.k_proj = nn.Linear(d, d, bias=True)
-        self.v_proj = nn.Linear(d, d, bias=True)
-
-        # Output projection back to d
-        self.o_proj = nn.Linear(d, d, bias=True)
-
-        # Dropouts
-        self.attn_drop = nn.Dropout(attn_dropout)
-        self.proj_drop = nn.Dropout(proj_dropout)
-
-    def forward(
-        self,
-        x: torch.Tensor,                       # (N, L, d)
-        key_padding_mask: torch.Tensor | None = None  # (N, L) bool; True = PAD (mask out as keys)
-    ) -> torch.Tensor:
-        N, L, d = x.shape  # N=batch-like axis, L=sequence length, d=model dim
-
-        # --- Linear projections (shared, then split into heads) ---
-        # q,k,v: (N, L, d)
-        q = self.q_proj(x)
-        k = self.k_proj(x)
-        v = self.v_proj(x)
-
-        # Reshape to heads: (N, L, d) -> (N, H, L, d_h)
-        q = q.view(N, L, self.H, self.dh).transpose(1, 2)  # (N, H, L, d_h)
-        k = k.view(N, L, self.H, self.dh).transpose(1, 2)  # (N, H, L, d_h)
-        v = v.view(N, L, self.H, self.dh).transpose(1, 2)  # (N, H, L, d_h)
-
-        # --- Scaled dot-product attention (per head) ---
-        # scores = (q @ k^T) / sqrt(d_h): (N,H,L,d_h) x (N,H,d_h,L) -> (N,H,L,L)
-        scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.dh)  # (N,H,L,L)
-
-        # Apply key padding mask on KEYS (mask == True means PAD -> disallow attention to that key)
-        if key_padding_mask is not None:
-            # key_padding_mask: (N, L) -> (N, 1, 1, L) to broadcast over heads & queries
-            mask = key_padding_mask[:, None, None, :]  # True where PAD
-            scores = scores.masked_fill(mask, float("-inf"))
-
-        # Softmax over last dim (keys), then attention dropout
-        attn = F.softmax(scores, dim=-1)  # (N,H,L,L)
-        attn = self.attn_drop(attn)
-
-        # Weighted sum over values: (N,H,L,L) @ (N,H,L,d_h) -> (N,H,L,d_h)
-        out = torch.matmul(attn, v)  # (N,H,L,d_h)
-
-        # Merge heads: (N,H,L,d_h) -> (N,L,H*d_h=d)
-        out = out.transpose(1, 2).contiguous().view(N, L, d)  # (N,L,d)
-
-        # Output projection + projection dropout: (N,L,d) -> (N,L,d)
-        out = self.o_proj(out)
-        out = self.proj_drop(out)
-        return out
-
-
-# ============================================================
-# Axial (Double) Attention Block: Spatial MSA + Sequence MSA + FFN
-# ============================================================
-class AxialBlock(nn.Module):
-    """
-    One axial block = Spatial MSA (within direction over S) + Sequence MSA (across directions over Q) + FFN.
-
-    Shapes:
-      - Input H: (B, Q, S, d)
-      - Spatial MSA runs on (B*Q, S, d)      # Section 3(a) in math
-      - Sequence MSA runs on (B*S, Q, d)     # Section 3(b) in math
-      - FFN is pointwise per token           # Section 3(c) in math
-
-    Dropout locations:
-      - Inside MSA: attention dropout + projection dropout
-      - Inside FFN: dropout between linear layers (and optionally after second linear)
-    """
-    def __init__(self, d: int, H: int, ffn_mult: int = 4, attn_dropout=0.1, proj_dropout=0.1, ffn_dropout=0.1):
-        super().__init__()
-        self.msa_spatial = MSA(d, H, attn_dropout=attn_dropout, proj_dropout=proj_dropout)  # over S
-        self.msa_seq     = MSA(d, H, attn_dropout=attn_dropout, proj_dropout=proj_dropout)  # over Q
-
-        self.ln1 = nn.LayerNorm(d)  # after spatial residual
-        self.ln2 = nn.LayerNorm(d)  # after sequence residual
-        self.ln3 = nn.LayerNorm(d)  # after FFN residual
-
-        self.ffn = nn.Sequential(
-            nn.Linear(d, ffn_mult * d),
-            nn.GELU(),
-            nn.Dropout(ffn_dropout),          # FFN dropout between layers
-            nn.Linear(ffn_mult * d, d),
-            nn.Dropout(ffn_dropout),          # (optional) after second linear
-        )
-
-    def forward(
-        self,
-        H: torch.Tensor,                                # (B, Q, S, d)
-        seq_key_padding_mask: torch.Tensor | None = None  # (B, Q) bool; True = PAD along sequence axis
-    ) -> torch.Tensor:
-        B, Q, S, d = H.shape
-
-        # ---- 1) Spatial self-attention (within each direction), over S ----
-        x = H.view(B * Q, S, d)                 # (B*Q, S, d)
-        z = self.msa_spatial(x)                 # (B*Q, S, d)
-        x = self.ln1(x + z)                     # residual + LN
-        H = x.view(B, Q, S, d)                  # (B, Q, S, d)
-
-        # ---- 2) Sequence self-attention (across directions), over Q ----
-        x = H.permute(0, 2, 1, 3).contiguous()  # (B, S, Q, d)  swap (Q,S)
-        x = x.view(B * S, Q, d)                 # (B*S, Q, d)
-
-        # Repeat the sequence padding mask over S (so it matches (B*S, Q))
-        if seq_key_padding_mask is not None:
-            kpm = seq_key_padding_mask[:, None, :].expand(B, S, Q)  # (B,S,Q)   Insert S dim, repeat mask over S
-            kpm = kpm.reshape(B * S, Q)                             # (B*S, Q)
-        else:
-            kpm = None
-
-        z = self.msa_seq(x, key_padding_mask=kpm)   # (B*S, Q, d)
-        x = self.ln2(x + z)                         # residual + LN
-        H = x.view(B, S, Q, d).permute(0, 2, 1, 3).contiguous()  # (B, Q, S, d) swap back
-
-        # ---- 3) Pointwise FFN with residual ----
-        y = self.ffn(H)                             # (B, Q, S, d)
-        H = self.ln3(H + y)                         # (B, Q, S, d)
-        return H
-
-
-# ============================================================
-# End-to-End Axial Model (with dropout, no bias)
-# ============================================================
-class AxialMaskedLatentModel(nn.Module):
+class AxialMaskedModellingTransformer(nn.Module):
     """
     End-to-end model for masked latent reconstruction.
 
-    Pipeline:
-      1) Input projection: X ∈ R^{B,Q,S,C} -> H ∈ R^{B,Q,S,d} (Section 2a)
-      2) Add spatial positional embeddings P_s ∈ R^{S,d} (Section 2b)
-      3) Add gradient embeddings E_g(g_q) ∈ R^{B,Q,d} broadcast over S (Section 2c)
-      4) Replace masked directions with learned [MASK] token (optional)
-      5) Stack of axial blocks (spatial MSA → sequence MSA → FFN)^N
-      6) Decode back to channel space: H -> X_hat ∈ R^{B,Q,S,C} (Section 4)
+    Args:
+        C (int): Number of input channels per token.
+        d (int): Embedding dimension.
+        H (int): Number of attention heads.
+        S (int): Number of spatial positions.
+        N (int): Number of axial blocks.
+        attn_dropout (float): Dropout rate for attention layers.
+        proj_dropout (float): Dropout rate for projection layers.
+        ffn_dropout (float): Dropout rate for feed-forward layers.
 
-    Dropout is already handled inside MSA and FFN.
+    Pipeline:
+      1) Input projection: X ∈ ℝ^{B,Q,S,C} → H ∈ ℝ^{B,Q,S,d}
+      2) Add spatial positional embeddings: P_s ∈ ℝ^{S,d}
+      3) Add gradient embeddings: E_g(g_q) ∈ ℝ^{B,Q,d}, broadcast over S
+      4) Replace masked directions with learned [MASK] token (optional)
+      5) Stack of axial blocks: (spatial MSA → sequence MSA → FFN)^N
+      6) Decode back to channel space: H → X_hat ∈ ℝ^{B,Q,S,C}
+
+    Dropout is handled inside MSA and FFN.
+
+    Maths:
+        - Input: X ∈ ℝ^{B,Q,S,C}
+        - Project: H = W_in X ∈ ℝ^{B,Q,S,d}
+        - Add positional embeddings: H = H + P_s
+        - Add gradient embeddings: H = H + E_g(g_q)
+        - Masking: H[q] = [MASK] if Q_mask[q] is True
+        - Axial blocks: H' = AxialBlock(H)
+        - Output: X_hat = W_dec H' ∈ ℝ^{B,Q,S,C}
     """
-    def __init__(self, C: int = 512, d: int = 256, H: int = 8, S: int = 36, N: int = 6,
+    def __init__(self, C: int = 384, d: int = 256, H: int = 8, S: int = 36, N: int = 6,
                  attn_dropout=0.1, proj_dropout=0.1, ffn_dropout=0.1):
         super().__init__()
         self.S = S
@@ -218,36 +72,75 @@ class AxialMaskedLatentModel(nn.Module):
 
     def forward(
         self,
-        X: torch.Tensor,                         # (B, Q, S, C)
-        g: torch.Tensor,                         # (B, Q, 4)   [bval, bvec]
-        dir_mask: torch.Tensor | None = None,    # (B, Q) bool; True = masked directions
-        seq_key_padding_mask: torch.Tensor | None = None  # (B, Q) bool; True = PAD
+        X: torch.Tensor,                                # (B, Q, S, C)
+        g: torch.Tensor,                                # (B, Q, 4)   [bval, bvec]
+        Q_mask: torch.Tensor | None = None,             # (B, Q) bool; True = masked q-space direction
+        padding_mask: torch.Tensor | None = None        # (B, Q) bool; True = PAD
     ) -> torch.Tensor:
         B, Q, S, C = X.shape
         assert S == self.S, f"expected S={self.S}, got {S}"
 
-        # ---- 1(a) Project channels C -> d ----
+        #  1(a) Project channels C -> d 
         H = self.proj_in(X)                                # (B, Q, S, d)
 
-        # ---- 1(b) Add spatial positional embeddings P_s ----
+        #  1(b) Add spatial positional embeddings P_s 
         H = H + self.spatial_pe.view(1, 1, S, self.d)      # (B, Q, S, d)
 
-        # ---- 1(c) Gradient embedding E_g(g_q) ----
+        #  1(c) Gradient embedding E_g(g_q) 
         G = self.grad_mlp(g)                                # (B, Q, d)
         H = H + G.unsqueeze(2)                               # broadcast over S -> (B, Q, S, d)
 
-        # ---- Optional masking: replace whole directions with [MASK] ----
-        if dir_mask is not None:
-            # dir_mask (B,Q) -> (B,Q,S,d)
-            m = dir_mask.view(B, Q, 1, 1).expand(B, Q, S, 1)                            # Mask is fixed for qs but broadcast over S and d
-            mask_tok = self.mask_token.view(1, 1, 1, self.d).expand(B, Q, S, self.d)    # Expand mask token for all positions
-            H = torch.where(m, mask_tok, H)                 # (B, Q, S, d)                Replace H with [MASK] where masked
+        #  Optional masking: replace whole directions with [MASK] 
+        if Q_mask is not None:
+            mask = Q_mask.view(B, Q, 1, 1).expand(B, Q, S, 1)                                # Mask is fixed for qs but broadcast over S and d
+            mask_tok = self.mask_token.view(1, 1, 1, self.d).expand(B, Q, S, self.d)         # Expand mask token for all positions
+            H = torch.where(mask, mask_tok, H)                 # (B, Q, S, d)                  Replace H with [MASK] where masked
 
-        # ---- Axial blocks (Spatial MSA -> Sequence MSA -> FFN) ----
+        #  Axial blocks (Spatial MSA -> Sequence MSA -> FFN) 
         for blk in self.blocks:
-            H = blk(H, seq_key_padding_mask=seq_key_padding_mask)  # (B, Q, S, d)
+            H = blk(H, seq_key_padding_mask=padding_mask)  # (B, Q, S, d)
 
-        # ---- Decode d -> C per token ----
+        #  Decode d -> C per token 
         X_hat = self.proj_out(H)                             # (B, Q, S, C)
-        return X_hat
+        return X_hat, H
+    
 
+class AxialPredictingTransformer(nn.Module):
+    """
+    Wraps a pretrained transformer backbone to produce pooled features.
+
+    Args:
+        backbone (nn.Module): Transformer backbone module that outputs hidden states H of shape (B, Q, S, d).
+        d (int): Embedding dimension of the backbone output.
+        heads (int, optional): Number of attention heads for pooling. Default is 8.
+
+    Input:
+        x (tuple): Tuple from the datamodule, either (X, G, Q_mask, pad_mask) or (X, G, pad_mask).
+            - X (torch.Tensor): Input tensor of shape (B, Q, S, C).
+            - G (torch.Tensor): Gradient tensor of shape (B, Q, 4).
+            - Q_mask (torch.Tensor, optional): Mask tensor of shape (B, Q), True for masked directions.
+            - pad_mask (torch.Tensor): Padding mask of shape (B, Q), True for padded tokens.
+
+    Output:
+        z (torch.Tensor): Pooled feature tensor of shape (B, d).
+
+    Maths:
+        - Backbone: H = backbone(X, G, Q_mask=None, padding_mask=pad_mask) ∈ ℝ^{B,Q,S,d}
+        - Attention pooling: z = AttentionPool(H, pad_mask) ∈ ℝ^{B,d}
+    """
+    def __init__(self, heads: int = 8):
+        super().__init__()
+        self.transformer = AxialMaskedModellingTransformer()    # should output H: (B, Q, S, d)
+        self.d = self.transformer.d
+        self.pool = AttentionPool(self.d)
+
+    def forward(
+            self,
+            X: torch.Tensor,                                # (B, Q, S, C)
+            g: torch.Tensor,                                # (B, Q, 4)   [bval, bvec]
+            Q_mask: torch.Tensor | None = None,             # (B, Q) bool; True = masked q-space direction
+            padding_mask: torch.Tensor | None = None        # (B, Q) bool; True = PAD
+    ) -> torch.Tensor:
+        _, H = self.transformer(X, g, Q_mask, padding_mask)        # (B, Q, S, d)
+        z = self.pool(H, padding_mask)                          # (B, d)
+        return z
