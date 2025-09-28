@@ -1,7 +1,7 @@
 from torch import nn
 import torch
 
-from deepfusion.models.blocks.attention import AxialBlock, AttentionPool
+from deepfusion.models.blocks.attention import AxialBlock, AttentionPool, MaskedMeanPool
 
 class AxialMaskedModellingTransformer(nn.Module):
     """
@@ -79,9 +79,10 @@ class AxialMaskedModellingTransformer(nn.Module):
         H = self.proj_in(X)
 
         # Masking
-        Q_mask = Q_mask.view(B, Q, 1, 1)
-        M = self.mask_token.view(1, 1, 1, self.embed_dim)
-        H = torch.where(Q_mask, M, H)
+        if Q_mask is not None:
+            Q_mask = Q_mask.view(B, Q, 1, 1)
+            M = self.mask_token.view(1, 1, 1, self.embed_dim)
+            H = torch.where(Q_mask, M, H)
 
         # Positional embedding
         P = self.spatial_pe.view(1, 1, S, self.embed_dim)
@@ -114,12 +115,13 @@ class AxialPredictingTransformer(nn.Module):
     def __init__(
         self,
         in_channels: int = 384,
-        embed_dim: int = 256,
-        num_heads: int = 8,
+        embed_dim: int = 384,
+        num_heads: int = 6,
         num_spatials: int = 36,
         num_layers: int = 6,
-        attn_dropout: float = 0.1,
+        attn_dropout: float = 0.02,
         ffn_dropout: float = 0.1,
+        attn_pool: bool = True,
     ):
         super().__init__()
         self.transformer = AxialMaskedModellingTransformer(
@@ -132,7 +134,15 @@ class AxialPredictingTransformer(nn.Module):
             ffn_dropout=ffn_dropout,
         )
         self.embed_dim = embed_dim
-        self.pool = AttentionPool(embed_dim=embed_dim, num_heads=num_heads)
+        self.attn_pool = attn_pool
+
+        self.ln = nn.LayerNorm(embed_dim)
+
+        if attn_pool:
+            self.pool = AttentionPool(embed_dim=embed_dim, num_heads=num_heads)
+        else:
+            self.pool = MaskedMeanPool()
+
 
     def forward(
         self,
@@ -141,6 +151,19 @@ class AxialPredictingTransformer(nn.Module):
         Q_mask: torch.Tensor | None = None,             # (B, Q) bool
         padding_mask: torch.Tensor | None = None        # (B, Q) bool
     ) -> torch.Tensor:
-        _, H = self.transformer(X, g, Q_mask, padding_mask)
-        z = self.pool(H, padding_mask)
+        
+        self.transformer.eval()
+        with torch.no_grad():   # backbone frozen
+            _, H = self.transformer(X, g, Q_mask, padding_mask)
+
+        # shapes: padding_mask (B, Q), H (B, Q, S, E)
+        B, Q, S, _ = H.shape
+        key_pad = padding_mask.unsqueeze(-1).expand(B, Q, S).reshape(B, Q*S)
+        assert key_pad.dtype == torch.bool
+        # Sanity: if sequences have K padded Q-positions, sum should be K*S per sample
+        expected = (padding_mask.sum(dim=1) * S)
+        actual = key_pad.sum(dim=1)
+        assert torch.all(actual == expected), "Padding mask expansion/polarity is off"
+
+        z = self.pool(self.ln(H), padding_mask)
         return z

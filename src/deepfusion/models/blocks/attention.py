@@ -39,21 +39,26 @@ class AxialBlock(nn.Module):
         B, Q, S, embed_dim = H.shape
 
         # 1) Spatial self-attention (within each direction), over S (prenorm)
-        x = H.view(B * Q, S, embed_dim)
+        x = H.reshape(B * Q, S, embed_dim)
         x_ln = self.ln1(x)
         z, _ = self.msa_spatial(x_ln, x_ln, x_ln, need_weights=False)
         x = x + z
-        H = x.view(B, Q, S, embed_dim)
+        H = x.reshape(B, Q, S, embed_dim)
 
         # 2) Sequence self-attention (across directions), over Q (prenorm)
         x = H.permute(0, 2, 1, 3).contiguous()
-        x = x.view(B * S, Q, embed_dim)
+        x = x.reshape(B * S, Q, embed_dim)
         x_ln = self.ln2(x)
 
-        padding_mask = padding_mask[:, None, :].expand(B, S, Q)
-        padding_mask = padding_mask.reshape(B * S, Q)
+        if padding_mask is None:
+            # default: no padding
+            kpm = torch.zeros(B, S, Q, dtype=torch.bool, device=H.device).reshape(B * S, Q)
+        else:
+            # True = PAD (ignored by PyTorch MHA)
+            kpm = padding_mask.to(torch.bool).unsqueeze(1).expand(B, S, Q).reshape(B * S, Q)
 
-        z, _ = self.msa_seq(x_ln, x_ln, x_ln, key_padding_mask=padding_mask, need_weights=False)
+
+        z, _ = self.msa_seq(x_ln, x_ln, x_ln, key_padding_mask=kpm, need_weights=False)
         x = x + z
         H = x.view(B, S, Q, embed_dim).permute(0, 2, 1, 3).contiguous()
 
@@ -85,11 +90,30 @@ class AttentionPool(nn.Module):
 
         q = self.query.expand(B, 1, embed_dim)
 
-        padding_mask = padding_mask.unsqueeze(-1)
-        padding_mask = padding_mask.expand(B, Q, S)
-        padding_mask = padding_mask.reshape(B, L)
+        if padding_mask is None:
+            kpm = torch.zeros(B, L, dtype=torch.bool, device=H.device)
+        else:
+            kpm = padding_mask.to(torch.bool).unsqueeze(-1).expand(B, Q, S).reshape(B, L)
 
-        out, _ = self.mha(q, H, H, key_padding_mask=padding_mask)
+
+        out, _ = self.mha(q, H, H, key_padding_mask=kpm)
         out = out.squeeze(1)
 
         return out
+    
+
+
+class MaskedMeanPool(nn.Module):
+    """Mean over (Q,S) with optional padding_mask of shape (B, Q)."""
+    def forward(self, H: torch.Tensor, padding_mask: torch.Tensor | None = None) -> torch.Tensor:
+        # H: (B, Q, S, E)
+        B, Q, S, E = H.shape
+        Hf = H.reshape(B, Q * S, E)  # (B, QS, E)
+        if padding_mask is None:
+            return Hf.mean(dim=1)     # (B, E)
+
+        # padding_mask: True = pad → exclude from mean
+        key_pad = padding_mask.unsqueeze(-1).expand(B, Q, S).reshape(B, Q * S)  # (B, QS)
+        w = (~key_pad).float()  # 1 for valid, 0 for pad
+        denom = torch.clamp_min(w.sum(dim=1, keepdim=True), 1.0)               # (B, 1)
+        return (Hf * w.unsqueeze(-1)).sum(dim=1) / denom                        # (B, E)

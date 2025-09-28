@@ -319,7 +319,13 @@ class ClassifierRegressorTrainer(pl.LightningModule):
 
         self.model = model
 
-        self.head = nn.Linear(self.model.embed_dim, out_dim)
+        hidden = 2 * self.model.embed_dim
+        self.head = nn.Sequential(
+            nn.Linear(self.model.embed_dim, hidden),
+            nn.GELU(),
+            nn.Dropout(0.1),
+            nn.Linear(hidden, out_dim),
+        )
 
         if task == "age":
             self.metrics = nn.ModuleDict({
@@ -485,6 +491,7 @@ class TransformerFinetuner(ClassifierRegressorTrainer):
         self,
         embed_dim: int = 384,
         num_heads: int = 6,
+        attn_pool: bool = False,
         task: str = "tri_cdr",
         lr: float = 1e-4,
         weight_decay: float = 1e-4,
@@ -494,7 +501,8 @@ class TransformerFinetuner(ClassifierRegressorTrainer):
         # Hardcoded backbone+pool inside the features wrapper
         features = AxialPredictingTransformer(
             embed_dim=embed_dim,
-            num_heads=num_heads
+            num_heads=num_heads,
+            attn_pool=attn_pool,
         )
 
         # Load pretrained backbone
@@ -517,13 +525,4 @@ class TransformerFinetuner(ClassifierRegressorTrainer):
         for p in self.head.parameters():
             p.requires_grad = True
 
-        # ---- Freeze backbone, keep pool + head trainable ----
-        for p in self.model.transformer.parameters():
-            p.requires_grad = False  # freeze transformer (proj_in, pe, grad_mlp, blocks, proj_out)
-
-        for p in self.model.pool.parameters():
-            p.requires_grad = True   # train the attention pool
-
-        for p in self.head.parameters():
-            p.requires_grad = True   # train the final projection (task head)
-        
+        self.model.transformer.eval()

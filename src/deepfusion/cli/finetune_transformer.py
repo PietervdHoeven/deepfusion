@@ -46,9 +46,10 @@ def main():
         embed_dim=384,
         num_heads=6,
         task=args.task,
-        lr=1e-4,
+        lr=1e-5,
         weight_decay=1e-4,
         pretrain_ckpt=args.pretrain_ckpt,
+        attn_pool=True
     )
 
     # Logging/checkpoints
@@ -79,7 +80,7 @@ def main():
     trainer = pl.Trainer(
         accelerator="auto",
         devices=1,
-        precision="bf16-mixed",
+        precision="32",
         logger=logger,
         callbacks=[checkpoint_cb, earlystop_cb],
         gradient_clip_val=1.0,
