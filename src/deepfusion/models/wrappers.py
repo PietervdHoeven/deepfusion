@@ -148,18 +148,16 @@ class TransformerPretrainer(pl.LightningModule):
     """
     PyTorch Lightning module for masked latent reconstruction using AxialMaskedModellingTransformer.
     Args:
-        C (int, optional): Input channel dimension. Default is 384.
-        d (int, optional): Transformer hidden dimension. Default is 256.
-        H (int, optional): Number of attention heads. Default is 8.
-        S (int, optional): Sequence length. Default is 36.
-        N (int, optional): Number of transformer layers. Default is 6.
+        in_channels (int, optional): Input channel dimension. Default is 384.
+        embed_dim (int, optional): Transformer hidden dimension. Default is 384.
+        num_heads (int, optional): Number of attention heads. Default is 6.
+        num_spatials (int, optional): Sequence length. Default is 36.
+        num_layers (int, optional): Number of transformer layers. Default is 6.
         attn_dropout (float, optional): Dropout rate for attention layers. Default is 0.1.
-        proj_dropout (float, optional): Dropout rate for projection layers. Default is 0.1.
         ffn_dropout (float, optional): Dropout rate for feed-forward layers. Default is 0.1.
         betas (Tuple[float, float], optional): AdamW optimizer betas. Default is (0.9, 0.95).
         lr (float, optional): Learning rate for optimizer. Default is 1e-4.
         weight_decay (float, optional): Weight decay for optimizer. Default is 5e-2.
-        lam_cos (float, optional): Weight for cosine similarity loss term. Default is 0.1.
     Methods:
         forward(X, G, Q_mask, pad_mask): Forward pass through the model.
         training_step(batch, batch_idx): Training step logic.
@@ -167,17 +165,16 @@ class TransformerPretrainer(pl.LightningModule):
         test_step(batch, batch_idx): Test step logic.
         configure_optimizers(): Configures optimizers and learning rate schedulers.
     Example:
-        >>> model = TransformerPretrainer(C=384, d=256, H=8, S=36, N=6)
+        >>> model = TransformerPretrainer(in_channels=384, embed_dim=384, num_heads=6, num_spatials=36, num_layers=6)
     """
     def __init__(
         self,
-        C=384,
-        d=256,
-        H=8,
-        S=36,
-        N=6,
-        attn_dropout=0.1,
-        proj_dropout=0.1,
+        in_channels=384,
+        embed_dim=384,
+        num_heads=6,
+        num_spatials=36,
+        num_layers=6,
+        attn_dropout=0.02,
         ffn_dropout=0.1,
         betas=(0.9, 0.95),
         lr=1e-4,
@@ -186,22 +183,25 @@ class TransformerPretrainer(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters()
         self.model = AxialMaskedModellingTransformer(
-            C=C, d=d, H=H, S=S, N=N,
+            in_channels=in_channels,
+            embed_dim=embed_dim,
+            num_heads=num_heads,
+            num_spatials=num_spatials,
+            num_layers=num_layers,
             attn_dropout=attn_dropout,
-            proj_dropout=proj_dropout,
             ffn_dropout=ffn_dropout,
         )
 
-    def forward(self, X, G, Q_mask, pad_mask):
-        # X: (B,Q,S,C), G: (B,Q,4), Q_mask: (B,Q), pad_mask: (B,Q)
-        return self.model(X, G, Q_mask=Q_mask, padding_mask=pad_mask)
+    def forward(self, x, g, Q_mask, pad_mask):
+        # x: (B,Q,S,C), g: (B,Q,4), q_mask: (B,Q), pad_mask: (B,Q)
+        return self.model(x, g, Q_mask=Q_mask, padding_mask=pad_mask)
     
     def _step(self, batch, stage: str):
-        X, G, Q_mask, pad_mask = batch
-        X_hat, _ = self(X, G, Q_mask, pad_mask)
-        loss = masked_recon_loss(X_hat, X, Q_mask)
-        m = Q_mask.unsqueeze(-1).unsqueeze(-1).expand_as(X_hat)  # (B,Q,1,1) -> (B,Q,S,C)
-        mae = F.l1_loss(X_hat[m], X[m])
+        x, g, Q_mask, pad_mask = batch
+        x_hat, _ = self(x, g, Q_mask, pad_mask)
+        loss = masked_recon_loss(x_hat, x, Q_mask)
+        m = Q_mask.unsqueeze(-1).unsqueeze(-1).expand_as(x_hat)  # (B,Q,1,1) -> (B,Q,S,C)
+        mae = F.l1_loss(x_hat[m], x[m])
         self.log(f"{stage}_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
         self.log(f"{stage}_mae", mae, prog_bar=True, on_step=False, on_epoch=True)
         return loss
@@ -224,7 +224,7 @@ class TransformerPretrainer(pl.LightningModule):
         for n, p in self.named_parameters():
             if not p.requires_grad:
                 continue
-            if any(nd in n for nd in ["bias", "LayerNorm.weight", "ln.weight", "norm.weight"]):
+            if p.ndim <= 1 or n.endswith(".bias"):   # biases + LayerNorm/BatchNorm weights
                 no_decay.append(p)
             else:
                 decay.append(p)
@@ -319,7 +319,7 @@ class ClassifierRegressorTrainer(pl.LightningModule):
 
         self.model = model
 
-        self.head = nn.Linear(self.model.d, out_dim)
+        self.head = nn.Linear(self.model.embed_dim, out_dim)
 
         if task == "age":
             self.metrics = nn.ModuleDict({
@@ -483,15 +483,19 @@ class TransformerFinetuner(ClassifierRegressorTrainer):
     """
     def __init__(
         self,
+        embed_dim: int = 384,
+        num_heads: int = 6,
         task: str = "tri_cdr",
         lr: float = 1e-4,
         weight_decay: float = 1e-4,
         patience: int = 10,
-        heads: int = 8,
         pretrain_ckpt: str | None = None,   # <-- add this
     ):
         # Hardcoded backbone+pool inside the features wrapper
-        features = AxialPredictingTransformer(heads=heads)
+        features = AxialPredictingTransformer(
+            embed_dim=embed_dim,
+            num_heads=num_heads
+        )
 
         # Load pretrained backbone
         if pretrain_ckpt:

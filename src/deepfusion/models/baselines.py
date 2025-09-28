@@ -9,7 +9,7 @@ class EncoderOnly(nn.Module):
             residual=True, 
             ):
         super().__init__()
-        self.d = channels[-1]
+        self.embed_dim = channels[-1]
 
         self.stem = nn.Sequential(
             nn.Conv3d(in_ch, channels[0], 3, 1, 1, bias=False),

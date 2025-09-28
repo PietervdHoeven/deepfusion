@@ -50,16 +50,33 @@ def weighted_charbonnier(pred, target, mask, w_fg=1.0, w_bg=0.01, eps=1e-3, eps_
 # Masked reconstruction loss (apply only on masked directions)
 # ============================================================
 def masked_recon_loss(
-    X_hat: torch.Tensor,       # (B, Q, S, C)
-    X: torch.Tensor,           # (B, Q, S, C)
-    q_space_mask: torch.Tensor,    # (B, Q) bool; True = masked (compute loss here)
-):
+    X_hat: torch.Tensor,          # (B, Q, S, C)
+    X: torch.Tensor,              # (B, Q, S, C)
+    q_space_mask: torch.Tensor,   # (B, Q) bool; True = masked (compute loss here)
+    alpha: float = 1.0,           # weight for MSE term
+    beta: float = 0.1             # weight for cosine term
+) -> torch.Tensor:
     B, Q, S, C = X.shape
     # Broadcast mask over S and C: (B,Q) -> (B,Q,S,C)
     m = q_space_mask.view(B, Q, 1, 1).expand(B, Q, S, C)   # True where masked
 
-    # MSE on masked tokens
-    diff = (X_hat - X)[m]              # (num_masked * S * C,)
-    mse  = (diff ** 2).mean()
+    # Select only masked positions
+    X_masked     = X[m].view(-1, C)       # (N, C), where N = num_masked * S
+    X_hat_masked = X_hat[m].view(-1, C)   # (N, C)
 
-    return mse
+    # --- 1) MSE term ---
+    mse = F.mse_loss(X_hat_masked, X_masked)
+
+    # --- 2) Cosine alignment term ---
+    if X_masked.numel() > 0 and beta > 0:  # avoid NaNs if mask empty
+        cos = F.cosine_embedding_loss(
+            X_hat_masked,
+            X_masked,
+            torch.ones(X_masked.size(0), device=X.device),
+            reduction="mean"
+        )
+    else:
+        cos = torch.tensor(0.0, device=X.device)
+
+    # --- Combine ---
+    return alpha * mse + beta * cos

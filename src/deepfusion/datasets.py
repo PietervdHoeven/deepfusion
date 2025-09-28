@@ -176,3 +176,31 @@ class TransformerDataset(Dataset):
             return torch.from_numpy(x).float(), torch.from_numpy(g).float(), y
 
         return torch.from_numpy(x).float(), torch.from_numpy(g).float()
+    
+# print the mean and std of a dataset
+def print_dataset_mean_std(data_dir="data", stage="train"):
+    root = Path(data_dir) / "deepfusion" / "latents" / stage
+    files = sorted(root.glob("**/*_latent-maps.npy"))
+    if not files:
+        raise FileNotFoundError(f"No latent .npy files under {root}")
+
+    total_sum = 0.0
+    total_sumsq = 0.0
+    total_count = 0
+
+    for f in files:
+        x = np.load(f, mmap_mode="r")  # shape: (Q, C, D, H, W)
+        if x.ndim != 5:
+            raise ValueError(f"Unexpected shape in {f}: {x.shape}")
+        total_sum   += np.sum(x, dtype=np.float64)
+        total_sumsq += np.sum(np.square(x, dtype=np.float64), dtype=np.float64)
+        total_count += x.size
+
+    mean = float(total_sum / total_count)
+    var  = float(total_sumsq / total_count - mean**2)
+    std  = float(np.sqrt(max(var, 0.0)))
+
+    print(f"[Latents:{stage}] mean={mean:.8f}, std={std:.8f}, n={total_count}")
+
+if __name__ == "__main__":
+    print_dataset_mean_std(data_dir="data", stage="train")

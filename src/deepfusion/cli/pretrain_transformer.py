@@ -31,16 +31,16 @@ def main():
         num_workers=14,
         pin_memory=True,
         prefetch_factor=4,
-        mask_ratio_train=0.3,
-        mask_ratio_val=0.3,
-        mask_ratio_test=0.3,
+        mask_ratio_train=0.2,
+        mask_ratio_val=0.2,
+        mask_ratio_test=0.2,
     )
 
     # Model (hardcoded hparams)
     model = TransformerPretrainer(
-        C=384, d=256, H=8, S=36, N=6,
-        attn_dropout=0.1, proj_dropout=0.1, ffn_dropout=0.1,
-        lr=1e-4, weight_decay=5e-2
+        in_channels=384, embed_dim=384, num_heads=6, num_spatials=36, num_layers=6,
+        attn_dropout=0.02, ffn_dropout=0.1,
+        lr=3e-4, weight_decay=5e-2
     )
 
     # Logging/checkpoints
@@ -51,14 +51,14 @@ def main():
 
     checkpoint_cb = ModelCheckpoint(
         dirpath=ckpt_dir,
-        filename="epoch-{epoch:02d}_val_loss-{val_loss:.4f}",
+        filename="epoch-{epoch:02d}_val_mae-{val_mae:.4f}",
         save_top_k=1,
         save_last=True,
-        monitor="val_loss",
+        monitor="val_mae",
         mode="min",
         auto_insert_metric_name=False,
     )
-    earlystop_cb = EarlyStopping(monitor="val_loss", mode="min", patience=15, min_delta=0.0005)
+    earlystop_cb = EarlyStopping(monitor="val_mae", mode="min", patience=25, min_delta=0.0005)
 
     trainer = pl.Trainer(
         accelerator="auto",
@@ -67,9 +67,9 @@ def main():
         logger=logger,
         callbacks=[checkpoint_cb, earlystop_cb],
         gradient_clip_val=1.0,
-        accumulate_grad_batches=8,
+        accumulate_grad_batches=32,
         log_every_n_steps=10,
-        max_epochs=150,
+        max_epochs=500,
     )
 
     # Run

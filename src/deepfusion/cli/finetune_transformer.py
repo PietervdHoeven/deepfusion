@@ -43,11 +43,11 @@ def main():
 
     # Model: Finetuner builds backbone+pool internally and loads pretrain ckpt
     model = TransformerFinetuner(
+        embed_dim=384,
+        num_heads=6,
         task=args.task,
         lr=1e-4,
         weight_decay=1e-4,
-        patience=10,
-        heads=8,
         pretrain_ckpt=args.pretrain_ckpt,
     )
 
@@ -83,7 +83,7 @@ def main():
         logger=logger,
         callbacks=[checkpoint_cb, earlystop_cb],
         gradient_clip_val=1.0,
-        accumulate_grad_batches=16,
+        accumulate_grad_batches=8,
         log_every_n_steps=10,
         max_epochs=150,
     )
